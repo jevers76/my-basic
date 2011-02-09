@@ -51,9 +51,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 1
+#define _VER_REVISION 2
 #define _MB_VERSION ((_VER_MAJOR << 24) | (_VER_MINOR << 16) | (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0001"
+#define _MB_VERSION_STRING "1.0.0002"
 
 /* Helper */
 #ifndef sgn

@@ -1,6 +1,8 @@
 @echo off
 echo Cleaning, a moment please...
 
+attrib *.suo -s -r -h
+del /f /s /q *.suo
 del /f /s /q *.user
 del /f /s /q *.ncb
 

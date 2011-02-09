@@ -66,6 +66,8 @@ extern "C" {
 #define MB_REG_FUN(__s, __f) mb_register_func(__s, #__f, __f)
 #define MB_REM_FUN(__s, __f) mb_remove_func(__s, #__f)
 
+struct mb_interpreter_t;
+
 typedef enum mb_error_e {
 	SE_NO_ERR = 0,
 	/** Common */
