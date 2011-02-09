@@ -1,2 +1,5 @@
+Feb. 9 2011
+Fixed struct mb_interpreter_t declaration warnings on gcc
+
 Feb. 1 2011
 First release.
