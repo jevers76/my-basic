@@ -27,13 +27,16 @@
 #	define _CRT_SECURE_NO_WARNINGS
 #endif /* _MSC_VER */
 
-#include <malloc.h>
+#ifndef __APPLE__
+#	include <malloc.h>
+#	include <conio.h>
+#endif /* __APPLE__ */
 #include <memory.h>
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <conio.h>
+#include <ctype.h>
 #include <math.h>
 #include "my_basic.h"
 
@@ -51,18 +54,43 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 2
+#define _VER_REVISION 6
 #define _MB_VERSION ((_VER_MAJOR << 24) | (_VER_MINOR << 16) | (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0002"
+#define _MB_VERSION_STRING "1.0.0006"
 
 /* Helper */
 #ifndef sgn
 #	define sgn(__v) ((__v) ? (__v > 0 ? 1 : -1) : (0))
-#endif
+#endif /* sgn */
 
 #ifndef _countof
 #	define _countof(__a) (sizeof(__a) / sizeof(*(__a)))
-#endif
+#endif /* _countof */
+
+#ifndef islower
+#	define islower(__c) ((__c) >= 'a' && (__c) <= 'z')
+#endif /* islower */
+
+#ifndef toupper
+#	define toupper(__c) ((islower(__c)) ? ((__c) - 'a' + 'A') : (__c))
+#endif /* toupper */
+
+#ifdef __APPLE__
+#	ifndef _strupr
+		static char* _strupr(char* __s) {
+			char* t = __s;
+
+			while(*__s) {
+				*__s = toupper(*__s);
+				++__s;
+			}
+
+			return t;
+		}
+#	endif /* _strupr */
+#endif /* __APPLE__ */
+
+#define safe_free(__p) { if(__p) { free(__p); __p = 0; } else { assert("Memory already released"); } }
 
 /* Hash table size */
 #define _HT_ARRAY_SIZE_SMALL 193
@@ -369,7 +397,7 @@ static _object_t* _exp_assign = 0;
 		_object_t* val = (_object_t*)(tpptr->e3); \
 		val->type = _DT_STRING; \
 		if(val->data.string) { \
-			free(val->data.string); \
+			safe_free(val->data.string); \
 		} \
 		_str1 = _extract_string(opnd1); \
 		_str2 = _extract_string(opnd2); \
@@ -484,11 +512,11 @@ static int _parse_char(mb_interpreter_t* s, char c, int pos);
 static void _set_error_pos(mb_interpreter_t* s, int pos);
 
 static int_t _get_size_of(_data_e type);
-static bool_t _try_get_value(_object_t* obj, union mb_value_u* val, _data_e expected);
+static bool_t _try_get_value(_object_t* obj, mb_value_u* val, _data_e expected);
 
 static int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index);
-static bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, union mb_value_u* val, _data_e* type);
-static bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, union mb_value_u* val, _data_e* type);
+static bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, mb_value_u* val, _data_e* type);
+static bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, mb_value_u* val, _data_e* type);
 
 static void _init_array(_array_t* arr);
 static void _clear_array(_array_t* arr);
@@ -523,7 +551,15 @@ static int _close_std_lib(mb_interpreter_t* s);
 */
 
 /** Macro */
-#define _do_nothing printf("Unaccessable function: %s\n", __FUNCTION__)
+#ifdef _MSC_VER
+#	if _MSC_VER < 1300
+#		define _do_nothing { static int i = 0; ++i; printf("Unaccessable function called %d times\n", i); }
+#	else
+#		define _do_nothing printf("Unaccessable function: %s\n", __FUNCTION__)
+#	endif
+#else
+#	define _do_nothing printf("Unaccessable function: %s\n", __FUNCTION__)
+#endif /* _MSC_VER && _MSC_VER < 1300 */
 
 /** Core lib */
 static int _core_dummy_assign(mb_interpreter_t* s, void** l);
@@ -811,7 +847,7 @@ void* _ls_popback(_ls_node_t* list) {
 		result = tmp->data;
 
 		tmp->prev->next = 0;
-		free(tmp);
+		safe_free(tmp);
 	}
 
 	return result;
@@ -829,7 +865,7 @@ void* _ls_popfront(_ls_node_t* list) {
 
 		tmp->prev->next = tmp->next;
 		tmp->next->prev = tmp->prev;
-		free(tmp);
+		safe_free(tmp);
 	}
 
 	return result;
@@ -850,7 +886,7 @@ unsigned int _ls_remove(_ls_node_t* list, int pos) {
 			tmp->next->prev = tmp->prev;
 		}
 
-		free(tmp);
+		safe_free(tmp);
 
 		++result;
 	}
@@ -869,7 +905,7 @@ unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp) {
 		if(cmp(tmp, info) == 0) {
 			tmp->prev->next = tmp->next;
 			tmp->next->prev = tmp->prev;
-			free(tmp);
+			safe_free(tmp);
 			++result;
 			break;
 		}
@@ -913,7 +949,7 @@ unsigned int _ls_foreach(_ls_node_t* list, _ls_operation op) {
 			if(list) {
 				list->prev = tmp->prev;
 			}
-			free(tmp);
+			safe_free(tmp);
 		} else {
 			/* Do nothing */
 		}
@@ -944,14 +980,14 @@ void _ls_clear(_ls_node_t* list) {
 	while(list) {
 		tmp = list;
 		list = list->next;
-		free(tmp);
+		safe_free(tmp);
 	}
 }
 
 void _ls_destroy(_ls_node_t* list) {
 	_ls_clear(list);
 
-	free(list);
+	safe_free(list);
 }
 
 int _ls_free_extra(void* data, void* extra) {
@@ -959,7 +995,7 @@ int _ls_free_extra(void* data, void* extra) {
 
 	assert(extra);
 
-	free(extra);
+	safe_free(extra);
 
 	result = _OP_RESULT_DEL_NODE;
 
@@ -1230,8 +1266,8 @@ void _ht_destroy(_ht_node_t* ht) {
 	for(ul = 0; ul < ht->array_size; ++ul) {
 		_ls_destroy(ht->array[ul]);
 	}
-	free(ht->array);
-	free(ht);
+	safe_free(ht->array);
+	safe_free(ht);
 }
 
 /** Expression processing */
@@ -1347,7 +1383,7 @@ _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opn
 
 	status = (optr->data.func->pointer)(s, (void**)(&tpptr));
 	if(status != MB_FUNC_OK) {
-		free(result);
+		safe_free(result);
 		result = 0;
 		_set_current_error(s, SE_RN_OPERATION_FAILED);
 		_set_error_pos(s, optr->source_pos);
@@ -1656,7 +1692,7 @@ int _cut_symbol(mb_interpreter_t* s, int pos) {
 
 		status = _append_symbol(s, sym, &delsym, pos);
 		if(status || delsym) {
-			free(sym);
+			safe_free(sym);
 		}
 		result = status;
 	}
@@ -1717,12 +1753,12 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 		case _DT_INT:
 			tmp.any = value;
 			(*obj)->data.integer = tmp.integer;
-			free(sym);
+			safe_free(sym);
 			break;
 		case _DT_REAL:
 			tmp.any = value;
 			(*obj)->data.float_point = tmp.float_point;
-			free(sym);
+			safe_free(sym);
 			break;
 		case _DT_STRING:
 			(*obj)->data.string = (char*)malloc(strlen(sym) - 2 + 1);
@@ -1747,7 +1783,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 				tmp.array = (_array_t*)malloc(sizeof(_array_t));
 				memset(tmp.array, 0, sizeof(_array_t));
 				tmp.array->name = sym;
-				tmp.array->type = (_data_e)(int)value;
+				tmp.array->type = (_data_e)(int)(long)value;
 				(*obj)->data.array = tmp.array;
 
 				ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
@@ -1809,10 +1845,10 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 			break;
 		case _DT_SEP:
 			(*obj)->data.separator = sym[0];
-			free(sym);
+			safe_free(sym);
 			break;
 		case _DT_EOS:
-			free(sym);
+			safe_free(sym);
 			break;
 		default:
 			break;
@@ -1867,7 +1903,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 	}
 	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
 		if(strcmp("DIM", context->last_symbol->data.func->name) == 0) {
-			*value = (void*)(sym[strlen(sym) - 1] == '$' ? _DT_STRING : _DT_REAL);
+			*value = (void*)(unsigned long)(sym[strlen(sym) - 1] == '$' ? _DT_STRING : _DT_REAL);
 
 			result = _DT_ARRAY;
 			goto _exit;
@@ -2028,7 +2064,7 @@ int_t _get_size_of(_data_e type) {
 	return result;
 }
 
-bool_t _try_get_value(_object_t* obj, union mb_value_u* val, _data_e expected) {
+bool_t _try_get_value(_object_t* obj, mb_value_u* val, _data_e expected) {
 	/* Try to get a value(typed as int_t, real_t or char* */
 	bool_t result = false;
 
@@ -2054,7 +2090,7 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 	_object_t* len = 0;
 	_object_t subscript;
 	_object_t* subscript_ptr = 0;
-	union mb_value_u val;
+	mb_value_u val;
 	int dcount = 0;
 	unsigned int idx = 0;
 
@@ -2117,7 +2153,7 @@ _exit:
 	return result;
 }
 
-bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, union mb_value_u* val, _data_e* type) {
+bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, mb_value_u* val, _data_e* type) {
 	/* Get the value of an element in an array */
 	bool_t result = true;
 	int_t elemsize = 0;
@@ -2129,7 +2165,7 @@ bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, u
 	assert(index < arr->count);
 	elemsize = _get_size_of(arr->type);
 	pos = elemsize * index;
-	rawptr = (void*)((unsigned int)arr->raw + pos);
+	rawptr = (void*)((long unsigned int)arr->raw + pos);
 	if(arr->type == _DT_REAL) {
 		val->float_point = *((real_t*)rawptr);
 		*type = _DT_REAL;
@@ -2143,7 +2179,7 @@ bool_t _get_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, u
 	return result;
 }
 
-bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, union mb_value_u* val, _data_e* type) {
+bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, mb_value_u* val, _data_e* type) {
 	/* Set the value of an element in an array */
 	bool_t result = true;
 	int_t elemsize = 0;
@@ -2155,7 +2191,7 @@ bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, u
 	assert(index < arr->count);
 	elemsize = _get_size_of(arr->type);
 	pos = elemsize * index;
-	rawptr = (void*)((unsigned int)arr->raw + pos);
+	rawptr = (void*)((unsigned long)arr->raw + pos);
 	if(*type == _DT_INT) {
 		*((real_t*)rawptr) = (real_t)val->integer;
 	} else if(*type == _DT_REAL) {
@@ -2194,16 +2230,16 @@ void _clear_array(_array_t* arr) {
 		switch(arr->type) {
 			case _DT_INT:
 			case _DT_REAL:
-				free(arr->raw);
+				safe_free(arr->raw);
 				break;
 			case _DT_STRING:
 				strs = (char**)arr->raw;
 				for(ul = 0; ul < arr->count; ++ul) {
 					if(strs[ul]) {
-						free(strs[ul]);
+						safe_free(strs[ul]);
 					}
 				}
-				free(arr->raw);
+				safe_free(arr->raw);
 				break;
 			default:
 				assert("Unsupported");
@@ -2218,8 +2254,8 @@ void _destroy_array(_array_t* arr) {
 	assert(arr);
 
 	_clear_array(arr);
-	free(arr->name);
-	free(arr);
+	safe_free(arr->name);
+	safe_free(arr);
 }
 
 bool_t _is_string(void* obj) {
@@ -2282,34 +2318,34 @@ int _destroy_object(void* data, void* extra) {
 		case _DT_VAR:
 			if(!obj->ref) {
 				var = (_var_t*)(obj->data.variable);
-				free(var->name);
+				safe_free(var->name);
 				assert(var->data->type != _DT_VAR);
 				_destroy_object(var->data, 0);
-				free(var);
+				safe_free(var);
 			}
-			free(obj);
+			safe_free(obj);
 			break;
 		case _DT_STRING:
 			if(!obj->ref) {
-				free(obj->data.string);
+				safe_free(obj->data.string);
 			}
-			free(obj);
+			safe_free(obj);
 			break;
 		case _DT_FUNC:
-			free(obj->data.func->name);
-			free(obj->data.func);
-			free(obj);
+			safe_free(obj->data.func->name);
+			safe_free(obj->data.func);
+			safe_free(obj);
 			break;
 		case _DT_ARRAY:
 			if(!obj->ref) {
 				_destroy_array(obj->data.array);
 			}
-			free(obj);
+			safe_free(obj);
 			break;
 		case _DT_LABEL:
-			free(obj->data.label->name);
-			free(obj->data.label);
-			free(obj);
+			safe_free(obj->data.label->name);
+			safe_free(obj->data.label);
+			safe_free(obj);
 			break;
 		case _DT_NIL:
 		case _DT_INT:
@@ -2317,7 +2353,7 @@ int _destroy_object(void* data, void* extra) {
 		case _DT_SEP:
 		case _DT_EOS:
 		case _DT_USERTYPE:
-			free(obj);
+			safe_free(obj);
 			break;
 		default:
 			break;
@@ -2435,7 +2471,7 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 		default:
 			break;
 	}
-	if(result != MB_FUNC_OK) {
+	if(result != MB_FUNC_OK && result != MB_FUNC_SUSPEND) {
 		goto _exit;
 	}
 	if(ast) {
@@ -2546,7 +2582,7 @@ int _remove_func(mb_interpreter_t* s, const char* n, bool_t local) {
 		memcpy(name, n, strlen(n) + 1);
 		name = _strupr(name);
 		result += _ht_remove(scope, (void*)name);
-		free(name);
+		safe_free(name);
 	} else {
 		_set_current_error(s, SE_CM_FUNC_NOT_EXISTS);
 	}
@@ -2708,25 +2744,25 @@ int mb_dispose(void) {
 	int result = MB_FUNC_OK;
 
 	assert(_exp_assign);
-	free(_exp_assign->data.func->name);
-	free(_exp_assign->data.func);
-	free(_exp_assign);
+	safe_free(_exp_assign->data.func->name);
+	safe_free(_exp_assign->data.func);
+	safe_free(_exp_assign);
 	_exp_assign = 0;
 
 	assert(_OBJ_BOOL_TRUE);
 	if(_OBJ_BOOL_TRUE) {
-		free(_OBJ_BOOL_TRUE->data.variable->data);
-		free(_OBJ_BOOL_TRUE->data.variable->name);
-		free(_OBJ_BOOL_TRUE->data.variable);
-		free(_OBJ_BOOL_TRUE);
+		safe_free(_OBJ_BOOL_TRUE->data.variable->data);
+		safe_free(_OBJ_BOOL_TRUE->data.variable->name);
+		safe_free(_OBJ_BOOL_TRUE->data.variable);
+		safe_free(_OBJ_BOOL_TRUE);
 		_OBJ_BOOL_TRUE = 0;
 	}
 	assert(_OBJ_BOOL_FALSE);
 	if(_OBJ_BOOL_FALSE) {
-		free(_OBJ_BOOL_FALSE->data.variable->data);
-		free(_OBJ_BOOL_FALSE->data.variable->name);
-		free(_OBJ_BOOL_FALSE->data.variable);
-		free(_OBJ_BOOL_FALSE);
+		safe_free(_OBJ_BOOL_FALSE->data.variable->data);
+		safe_free(_OBJ_BOOL_FALSE->data.variable->name);
+		safe_free(_OBJ_BOOL_FALSE->data.variable);
+		safe_free(_OBJ_BOOL_FALSE);
 		_OBJ_BOOL_FALSE = 0;
 	}
 
@@ -2791,10 +2827,10 @@ int mb_close(mb_interpreter_t** s) {
 
 	running = (_running_context_t*)((*s)->running_context);
 	_ls_destroy(running->sub_stack);
-	free(running);
+	safe_free(running);
 
 	context = (_parsing_context_t*)((*s)->parsing_context);
-	free(context);
+	safe_free(context);
 
 	ast = (_ls_node_t*)((*s)->ast);
 	_ls_foreach(ast, _destroy_object);
@@ -2814,7 +2850,7 @@ int mb_close(mb_interpreter_t** s) {
 
 	_close_constant(*s);
 
-	free(*s);
+	safe_free(*s);
 	*s = 0;
 
 	return result;
@@ -2823,7 +2859,6 @@ int mb_close(mb_interpreter_t** s) {
 int mb_reset(mb_interpreter_t** s) {
 	/* Reset a MY-BASIC environment */
 	int result = MB_FUNC_OK;
-	_ht_node_t* local_scope = 0;
 	_ht_node_t* global_scope = 0;
 	_ls_node_t* ast;
 	_parsing_context_t* context = 0;
@@ -2940,7 +2975,7 @@ int mb_pop_int(mb_interpreter_t* s, void** l, int_t* val) {
 
 	assert(s && l && val);
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -2969,7 +3004,7 @@ int mb_pop_real(mb_interpreter_t* s, void** l, real_t* val) {
 
 	assert(s && l && val);
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -2998,7 +3033,7 @@ int mb_pop_string(mb_interpreter_t* s, void** l, char** val) {
 
 	assert(s && l && val);
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
 		case MB_DT_STRING:
@@ -3057,7 +3092,7 @@ int mb_push_int(mb_interpreter_t* s, void** l, int_t val) {
 
 	arg.type = MB_DT_INT;
 	arg.value.integer = val;
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -3071,7 +3106,7 @@ int mb_push_real(mb_interpreter_t* s, void** l, real_t val) {
 
 	arg.type = MB_DT_REAL;
 	arg.value.float_point = val;
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -3085,7 +3120,7 @@ int mb_push_string(mb_interpreter_t* s, void** l, char* val) {
 
 	arg.type = MB_DT_STRING;
 	arg.value.string = val;
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -3206,7 +3241,7 @@ int mb_run(mb_interpreter_t* s) {
 	do {
 		result = _execute_statement(s, &ast);
 		if(result != MB_FUNC_OK) {
-			if(s->error_handler) {
+			if(result != MB_FUNC_SUSPEND && s->error_handler) {
 				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos);
 			}
 			goto _exit;
@@ -3556,9 +3591,9 @@ int _core_not(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_func_begin(s, l));
+	mb_check(mb_attempt_func_begin(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -3571,7 +3606,7 @@ int _core_not(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_int(s, l, arg.value.integer));
+	mb_check(mb_push_int(s, l, arg.value.integer));
 
 	return result;
 }
@@ -3640,7 +3675,7 @@ int _core_let(mb_interpreter_t* s, void** l) {
 		}
 		_set_array_elem(s, arr, arr_idx, &_val, &val->type);
 	}
-	free(val);
+	safe_free(val);
 
 _exit:
 	*l = ast;
@@ -3654,7 +3689,7 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	_ls_node_t* ast = 0;
 	_object_t* arr = 0;
 	_object_t* len = 0;
-	union mb_value_u val;
+	mb_value_u val;
 	_array_t dummy;
 
 	assert(s && l);
@@ -4236,11 +4271,11 @@ int _std_abs(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4252,7 +4287,7 @@ int _std_abs(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4264,11 +4299,11 @@ int _std_sgn(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4281,7 +4316,7 @@ int _std_sgn(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_int(s, l, arg.value.integer));
+	mb_check(mb_push_int(s, l, arg.value.integer));
 
 	return result;
 }
@@ -4293,11 +4328,11 @@ int _std_sqr(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4310,7 +4345,7 @@ int _std_sqr(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4322,11 +4357,11 @@ int _std_floor(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4339,7 +4374,7 @@ int _std_floor(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_int(s, l, arg.value.integer));
+	mb_check(mb_push_int(s, l, arg.value.integer));
 
 	return result;
 }
@@ -4351,11 +4386,11 @@ int _std_round(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4368,7 +4403,7 @@ int _std_round(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_int(s, l, arg.value.integer));
+	mb_check(mb_push_int(s, l, arg.value.integer));
 
 	return result;
 }
@@ -4381,7 +4416,7 @@ int _std_rnd(mb_interpreter_t* s, void** l) {
 	assert(s && l);
 
 	rnd = (real_t)(((real_t)(rand() % 101)) / 100.0f);
-	MB_CHECK(mb_push_real(s, l, rnd));
+	mb_check(mb_push_real(s, l, rnd));
 
 	return result;
 }
@@ -4393,11 +4428,11 @@ int _std_sin(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4410,7 +4445,7 @@ int _std_sin(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4422,11 +4457,11 @@ int _std_cos(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4439,7 +4474,7 @@ int _std_cos(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4451,11 +4486,11 @@ int _std_tan(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4468,7 +4503,7 @@ int _std_tan(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4480,11 +4515,11 @@ int _std_asin(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4497,7 +4532,7 @@ int _std_asin(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4509,11 +4544,11 @@ int _std_acos(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4526,7 +4561,7 @@ int _std_acos(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4538,11 +4573,11 @@ int _std_atan(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4555,7 +4590,7 @@ int _std_atan(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4567,11 +4602,11 @@ int _std_exp(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4584,7 +4619,7 @@ int _std_exp(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4596,11 +4631,11 @@ int _std_log(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
 		case MB_DT_INT:
@@ -4613,7 +4648,7 @@ int _std_log(mb_interpreter_t* s, void** l) {
 		default:
 			break;
 	}
-	MB_CHECK(mb_push_value(s, l, arg));
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -4625,17 +4660,17 @@ int _std_asc(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_string(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	if(strlen(arg) <= 1) {
 		result = MB_FUNC_ERR;
 		goto _exit;
 	}
-	MB_CHECK(mb_push_int(s, l, (int_t)arg[0]));
+	mb_check(mb_push_int(s, l, (int_t)arg[0]));
 
 _exit:
 	return result;
@@ -4649,16 +4684,16 @@ int _std_chr(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_int(s, l, &arg));
+	mb_check(mb_pop_int(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	chr = (char*)malloc(2);
 	memset(chr, 0, 2);
 	chr[0] = (char)arg;
-	MB_CHECK(mb_push_string(s, l, chr));
+	mb_check(mb_push_string(s, l, chr));
 
 	return result;
 }
@@ -4672,12 +4707,12 @@ int _std_left(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
-	MB_CHECK(mb_pop_int(s, l, &count));
+	mb_check(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_int(s, l, &count));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	if(count <= 0) {
 		result = MB_FUNC_ERR;
@@ -4687,7 +4722,7 @@ int _std_left(mb_interpreter_t* s, void** l) {
 	sub = (char*)malloc(count + 1);
 	memcpy(sub, arg, count);
 	sub[count] = '\0';
-	MB_CHECK(mb_push_string(s, l, sub));
+	mb_check(mb_push_string(s, l, sub));
 
 _exit:
 	return result;
@@ -4700,13 +4735,13 @@ int _std_len(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_string(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
-	MB_CHECK(mb_push_int(s, l, (int_t)strlen(arg)));
+	mb_check(mb_push_int(s, l, (int_t)strlen(arg)));
 
 	return result;
 }
@@ -4721,13 +4756,13 @@ int _std_mid(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
-	MB_CHECK(mb_pop_int(s, l, &start));
-	MB_CHECK(mb_pop_int(s, l, &count));
+	mb_check(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_int(s, l, &start));
+	mb_check(mb_pop_int(s, l, &count));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	if(count <= 0 || start < 0 || start >= (int_t)strlen(arg)) {
 		result = MB_FUNC_ERR;
@@ -4737,7 +4772,7 @@ int _std_mid(mb_interpreter_t* s, void** l) {
 	sub = (char*)malloc(count + 1);
 	memcpy(sub, arg + start, count);
 	sub[count] = '\0';
-	MB_CHECK(mb_push_string(s, l, sub));
+	mb_check(mb_push_string(s, l, sub));
 
 _exit:
 	return result;
@@ -4752,12 +4787,12 @@ int _std_right(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
-	MB_CHECK(mb_pop_int(s, l, &count));
+	mb_check(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_int(s, l, &count));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	if(count <= 0) {
 		result = MB_FUNC_ERR;
@@ -4767,7 +4802,7 @@ int _std_right(mb_interpreter_t* s, void** l) {
 	sub = (char*)malloc(count + 1);
 	memcpy(sub, arg + (strlen(arg) - count), count);
 	sub[count] = '\0';
-	MB_CHECK(mb_push_string(s, l, sub));
+	mb_check(mb_push_string(s, l, sub));
 
 _exit:
 	return result;
@@ -4781,23 +4816,23 @@ int _std_str(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_value(s, l, &arg));
+	mb_check(mb_pop_value(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	chr = (char*)malloc(32);
 	memset(chr, 0, 32);
 	if(arg.type == MB_DT_INT) {
-		_itoa(arg.value.integer, chr, 32);
+		sprintf(chr, "%d", arg.value.integer);
 	} else if(arg.type == MB_DT_REAL) {
-		_gcvt(arg.value.float_point, 10, chr);
+		sprintf(chr, "%f", arg.value.float_point);
 	} else {
 		result = MB_FUNC_ERR;
 		goto _exit;
 	}
-	MB_CHECK(mb_push_string(s, l, chr));
+	mb_check(mb_push_string(s, l, chr));
 
 _exit:
 	return result;
@@ -4812,22 +4847,22 @@ int _std_val(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_open_bracket(s, l));
+	mb_check(mb_attempt_open_bracket(s, l));
 
-	MB_CHECK(mb_pop_string(s, l, &arg));
+	mb_check(mb_pop_string(s, l, &arg));
 
-	MB_CHECK(mb_attempt_close_bracket(s, l));
+	mb_check(mb_attempt_close_bracket(s, l));
 
 	val.value.integer = (int_t)strtol(arg, &conv_suc, 0);
 	if(*conv_suc == '\0') {
 		val.type = MB_DT_INT;
-		MB_CHECK(mb_push_value(s, l, val));
+		mb_check(mb_push_value(s, l, val));
 		goto _exit;
 	}
 	val.value.float_point = (real_t)strtod(arg, &conv_suc);
 	if(*conv_suc == '\0') {
 		val.type = MB_DT_REAL;
-		MB_CHECK(mb_push_value(s, l, val));
+		mb_check(mb_push_value(s, l, val));
 		goto _exit;
 	}
 	result = MB_FUNC_ERR;
@@ -4847,7 +4882,6 @@ int _std_print(mb_interpreter_t* s, void** l) {
 	unsigned int arr_idx = 0;
 	mb_value_u arr_val;
 	_data_e arr_type;
-	_object_t* arr_elem = 0;
 
 	assert(s && l);
 
@@ -4914,7 +4948,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 					printf("%f", running->intermediate_value.value.float_point);
 				} else if(running->intermediate_value.type == MB_DT_STRING) {
 					printf("%s", (running->intermediate_value.value.string ? running->intermediate_value.value.string : _NULL_STRING));
-					free(running->intermediate_value.value.string);
+					safe_free(running->intermediate_value.value.string);
 				} else {
 					result = MB_FUNC_ERR;
 					goto _exit;
@@ -4943,7 +4977,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 
 	assert(s && l);
 
-	MB_CHECK(mb_attempt_func_begin(s, l));
+	mb_check(mb_attempt_func_begin(s, l));
 
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
@@ -4954,7 +4988,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 		scanf("%f", &obj->data.variable->data->data.float_point);
 	} else if(obj->data.variable->data->type == _DT_STRING) {
 		if(obj->data.variable->data->data.string) {
-			free(obj->data.variable->data->data.string);
+			safe_free(obj->data.variable->data->data.string);
 		}
 		obj->data.variable->data->data.string = (char*)malloc(256);
 		memset(obj->data.variable->data->data.string, 0, 256);

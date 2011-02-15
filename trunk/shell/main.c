@@ -27,14 +27,16 @@
 #	define _CRT_SECURE_NO_WARNINGS
 #endif /* _MSC_VER */
 
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <conio.h>
-#include <string.h>
 #ifdef _MSC_VER
 #	include <crtdbg.h>
 #endif /* _MSC_VER */
+#ifndef __APPLE__
+#	include <conio.h>
+#endif /* __APPLE__ */
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "../core/my_basic.h"
 
 #define _MAX_LINE_LENGTH 256
@@ -42,9 +44,8 @@
 
 static mb_interpreter_t* bas = 0;
 
-int beep(struct mb_interpreter_t* s, void** l) {
+static int beep(mb_interpreter_t* s, void** l) {
 	int result = MB_FUNC_OK;
-	int_t arg = 0;
 
 	assert(s && l);
 
@@ -53,7 +54,7 @@ int beep(struct mb_interpreter_t* s, void** l) {
 	return result;
 }
 
-static void on_error(mb_interpreter_t* s, enum mb_error_e e, char* m, int p) {
+static void on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p) {
 	if(SE_NO_ERR != e) {
 		printf("Error : [POS] %d, [CODE] %d, [MESSAGE] %s\n", p, e, m);
 	}
@@ -65,7 +66,7 @@ static void on_startup(void) {
 	mb_open(&bas);
 	mb_set_error_handler(bas, on_error);
 
-	MB_REG_FUN(bas, beep);
+	mb_reg_fun(bas, beep);
 }
 
 static void on_exit(void) {
@@ -131,6 +132,8 @@ static int do_line(void) {
 }
 
 int main(int argc, char* argv[]) {
+	int status = 0;
+
 #ifdef _MSC_VER
 	_CrtSetBreakAlloc(0);
 #endif /* _MSC_VER */
@@ -141,7 +144,9 @@ int main(int argc, char* argv[]) {
 
 	if(argc == 1) {
 		show_tip();
-		while(do_line() == MB_FUNC_OK) { }
+		do {
+			status = do_line();
+		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status);
 	} else if(argc == 2) {
 		mb_load_file(bas, argv[1]);
 		mb_run(bas);

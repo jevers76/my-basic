@@ -52,19 +52,26 @@ extern "C" {
 #	define real_t float
 #endif
 
+#ifdef __APPLE__
+#	ifndef _strcmpi
+#		define _strcmpi strcasecmp
+#	endif /* _strcmpi */
+#endif /* __APPLE__ */
+
 #define MB_FUNC_OK 0
 #define MB_FUNC_ERR 1001
-#define MB_FUNC_END 2001
+#define MB_FUNC_END 1002
+#define MB_FUNC_SUSPEND 1003
 #define MB_PARSING_ERR 3001
 #define MB_LOOP_BREAK 5001
 #define MB_LOOP_CONTINUE 5002
 
-#define MB_CHECK(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
+#define mb_check(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
 
 #define MBAPI
 
-#define MB_REG_FUN(__s, __f) mb_register_func(__s, #__f, __f)
-#define MB_REM_FUN(__s, __f) mb_remove_func(__s, #__f)
+#define mb_reg_fun(__s, __f) mb_register_func(__s, #__f, __f)
+#define mb_rem_fun(__s, __f) mb_remove_func(__s, #__f)
 
 struct mb_interpreter_t;
 
