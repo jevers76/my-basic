@@ -54,9 +54,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 6
+#define _VER_REVISION 7
 #define _MB_VERSION ((_VER_MAJOR << 24) | (_VER_MINOR << 16) | (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0006"
+#define _MB_VERSION_STRING "1.0.0007"
 
 /* Helper */
 #ifndef sgn
@@ -96,7 +96,7 @@ extern "C" {
 #define _HT_ARRAY_SIZE_SMALL 193
 #define _HT_ARRAY_SIZE_MID 1543
 #define _HT_ARRAY_SIZE_BIG 12289
-#define _HT_ARRAY_SIZE_DEFAULT 177
+#define _HT_ARRAY_SIZE_DEFAULT _HT_ARRAY_SIZE_SMALL
 
 /* Max length of per symbol */
 #define _SINGLE_SYMBOL_MAX_LENGTH 32
@@ -280,7 +280,7 @@ typedef struct _tuple3_t {
 	void* e3;
 } _tuple3_t;
 
-char _PRECEDE_TABLE[18][18] = {
+static const char _PRECEDE_TABLE[18][18] = {
 	/* +    -    *    /    MOD  ^    (    )    =    >    <    >=   <=   ==   <>   AND  OR   NOT */
 	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* + */
 	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* - */
@@ -737,12 +737,7 @@ _ls_node_t* _ls_create(void) {
 _ls_node_t* _ls_front(_ls_node_t* node) {
 	_ls_node_t* result = node;
 
-	if(result) {
-		while(result->prev) {
-			result = result->prev;
-		}
-		result = result->next;
-	}
+	result = result->next;
 
 	return result;
 }
@@ -750,14 +745,7 @@ _ls_node_t* _ls_front(_ls_node_t* node) {
 _ls_node_t* _ls_back(_ls_node_t* node) {
 	_ls_node_t* result = node;
 
-	if(result) {
-		while(result->next) {
-			result = result->next;
-		}
-		if(result == node) {
-			result = 0;
-		}
-	}
+	result = result->prev;
 
 	return result;
 }
@@ -794,22 +782,27 @@ _ls_node_t* _ls_pushback(_ls_node_t* list, void* data) {
 	}
 	tmp->next = result;
 	result->prev = tmp;
+	list->prev = result;
 
 	return result;
 }
 
 _ls_node_t* _ls_pushfront(_ls_node_t* list, void* data) {
 	_ls_node_t* result = 0;
+	_ls_node_t* head = 0;
 
 	assert(list);
 
 	result = _ls_create_node(data);
 
+	head = list;
 	list = _ls_front(list);
-	list->prev->next = result;
-	result->prev = list->prev;
-	result->next = list;
-	list->prev = result;
+	head->next = result;
+	result->prev = head;
+	if(list) {
+		result->next = list;
+		list->prev = result;
+	}
 
 	return result;
 }
@@ -846,6 +839,12 @@ void* _ls_popback(_ls_node_t* list) {
 	if(tmp) {
 		result = tmp->data;
 
+		if(list != tmp->prev) {
+			list->prev = tmp->prev;
+		} else {
+			list->prev = 0;
+		}
+
 		tmp->prev->next = 0;
 		safe_free(tmp);
 	}
@@ -863,8 +862,14 @@ void* _ls_popfront(_ls_node_t* list) {
 	if(tmp) {
 		result = tmp->data;
 
+		if(!tmp->next) {
+			list->prev = 0;
+		}
+
 		tmp->prev->next = tmp->next;
-		tmp->next->prev = tmp->prev;
+		if(tmp->next) {
+			tmp->next->prev = tmp->prev;
+		}
 		safe_free(tmp);
 	}
 
@@ -884,6 +889,8 @@ unsigned int _ls_remove(_ls_node_t* list, int pos) {
 		}
 		if(tmp->next) {
 			tmp->next->prev = tmp->prev;
+		} else {
+			list->prev = tmp->prev;
 		}
 
 		safe_free(tmp);
@@ -903,8 +910,12 @@ unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp) {
 	tmp = list->next;
 	while(tmp) {
 		if(cmp(tmp, info) == 0) {
-			tmp->prev->next = tmp->next;
-			tmp->next->prev = tmp->prev;
+			if(tmp->prev) {
+				tmp->prev->next = tmp->next;
+			}
+			if(tmp->next) {
+				tmp->next->prev = tmp->prev;
+			}
 			safe_free(tmp);
 			++result;
 			break;
@@ -976,6 +987,7 @@ void _ls_clear(_ls_node_t* list) {
 	tmp = list;
 	list = list->next;
 	tmp->next = 0;
+	tmp->prev = 0;
 
 	while(list) {
 		tmp = list;
@@ -3420,7 +3432,7 @@ int _core_equal(mb_interpreter_t* s, void** l) {
 			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
 		}
 	} else {
-		_instruct_int_op_int(==, l);
+		_instruct_num_op_num(==, l);
 		tpr = (_tuple3_t*)(*l);
 		if(((_object_t*)(tpr->e3))->type != _DT_INT) {
 			((_object_t*)(tpr->e3))->type = _DT_INT;
@@ -3550,7 +3562,7 @@ int _core_not_equal(mb_interpreter_t* s, void** l) {
 			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
 		}
 	} else {
-		_instruct_int_op_int(!=, l);
+		_instruct_num_op_num(!=, l);
 		tpr = (_tuple3_t*)(*l);
 		if(((_object_t*)(tpr->e3))->type != _DT_INT) {
 			((_object_t*)(tpr->e3))->type = _DT_INT;
