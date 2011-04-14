@@ -1,5 +1,5 @@
 Introduction
-MY-BASIC is a tiny BASIC interpreter written in pure C within about 5000 lines of source code. It has an early structured BASIC like grammar but without line number. It is aimed to be either an embeddable scripting language or a stand alone interpreter. The core is pretty light; all in a C source file and a header file. It can be combined with an existing C / C++ / Objective-C project easily and power it up.
+	MY-BASIC is a tiny cross-platform BASIC interpreter written in pure C with about 5000 lines of source code. Its grammar is similar to structured BASIC in early era, but without line number. It is aimed to be either an embeddable scripting language or a standalone interpreter. The core is pretty light; all in a C source file and a header file. You can combine MY-BASIC with an existing C / C++ / Objective-C project easily, that can make them more powerful.
 
 Main features
 	Written in clean ANSI C, source portable
@@ -12,6 +12,6 @@ Main features
 	GOTO / GOSUB - RETURN support
 	Numeric functions
 	String functions
-	Easy to embed in to C / C++ / Objective-C projects
+	Easy to embed into C / C++ / Objective-C projects
 	High expansibility
 	It is free
