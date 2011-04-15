@@ -54,9 +54,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 7
+#define _VER_REVISION 8
 #define _MB_VERSION ((_VER_MAJOR << 24) | (_VER_MINOR << 16) | (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0007"
+#define _MB_VERSION_STRING "1.0.0008"
 
 /* Helper */
 #ifndef sgn
@@ -429,6 +429,7 @@ static _object_t* _exp_assign = 0;
 */
 
 /** List */
+static int _ls_cmp_data(void* node, void* info);
 static int _ls_cmp_extra(void* node, void* info);
 
 static _ls_node_t* _ls_create_node(void* data);
@@ -709,6 +710,12 @@ static const _func_t _std_libs[] = {
 */
 
 /** List */
+int _ls_cmp_data(void* node, void* info) {
+	_ls_node_t* n = (_ls_node_t*)node;
+
+	return (n->data == info) ? 0 : 1;
+}
+
 int _ls_cmp_extra(void* node, void* info) {
 	_ls_node_t* n = (_ls_node_t*)node;
 
@@ -1587,6 +1594,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 			(*val)->data = c->data;
 		}
 	}
+	_ls_try_remove(garbage, c, _ls_cmp_data);
 	if(guard_val != c) {
 		_destroy_object(c, 0);
 	}
@@ -1746,7 +1754,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 	/* Create a syntax symbol */
 	int result = MB_FUNC_OK;
 	_data_e type;
-	union { _func_t* func; _array_t* array; _var_t* var; real_t float_point; int_t integer; void* any; } tmp;
+	union { _func_t* func; _array_t* array; _var_t* var; _label_t* label; real_t float_point; int_t integer; void* any; } tmp;
 	void* value = 0;
 	unsigned int ul = 0;
 	_parsing_context_t* context = 0;
@@ -1841,13 +1849,20 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 
 					_handle_error(s, SE_RN_COLON_EXPECTED, ((_object_t*)(_ls_back(l)->data))->source_pos, MB_PARSING_ERR, _exit);
 				} else {
-					(*obj)->data.label = (_label_t*)malloc(sizeof(_label_t));
-					memset((*obj)->data.label, 0, sizeof(_label_t));
-					(*obj)->data.label->name = sym;
-					*asgn = &((*obj)->data.label->node);
+					tmp.label = (_label_t*)malloc(sizeof(_label_t));
+					memset(tmp.label, 0, sizeof(_label_t));
+					tmp.label->name = sym;
+					*asgn = &(tmp.label->node);
+					(*obj)->data.label = tmp.label;
 
 					ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
 					assert(ul);
+
+					*obj = (_object_t*)malloc(sizeof(_object_t));
+					memset(*obj, 0, sizeof(_object_t));
+					(*obj)->type = type;
+					(*obj)->data.label = tmp.label;
+					(*obj)->ref = true;
 				}
 			} else {
 				(*obj)->data.label = (_label_t*)malloc(sizeof(_label_t));
@@ -2355,8 +2370,10 @@ int _destroy_object(void* data, void* extra) {
 			safe_free(obj);
 			break;
 		case _DT_LABEL:
-			safe_free(obj->data.label->name);
-			safe_free(obj->data.label);
+			if(!obj->ref) {
+				safe_free(obj->data.label->name);
+				safe_free(obj->data.label);
+			}
 			safe_free(obj);
 			break;
 		case _DT_NIL:
