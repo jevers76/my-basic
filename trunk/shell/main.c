@@ -24,7 +24,9 @@
 */
 
 #ifdef _MSC_VER
-#	define _CRT_SECURE_NO_WARNINGS
+#	ifndef _CRT_SECURE_NO_WARNINGS
+#		define _CRT_SECURE_NO_WARNINGS
+#	endif /* _CRT_SECURE_NO_WARNINGS */
 #endif /* _MSC_VER */
 
 #ifdef _MSC_VER
@@ -118,7 +120,7 @@ static int do_line(void) {
 	} else if(_str_eq(line, "BYE")) {
 		result = MB_FUNC_END;
 	} else if(_str_eq(line, "NEW")) {
-		result = mb_reset(&bas);
+		result = mb_reset(&bas, false);
 	} else if(_str_eq(line, "RUN")) {
 		result = mb_run(bas);
 		printf("\n");

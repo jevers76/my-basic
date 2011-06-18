@@ -1,3 +1,7 @@
+Jun. 18 2011
+Fixed some mistakes
+Allowed underline character appear in an identifier
+
 Apr. 15 2011
 Fixed garbage collection and _label_t release bugs
 
