@@ -150,8 +150,9 @@ int main(int argc, char* argv[]) {
 			status = do_line();
 		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status);
 	} else if(argc == 2) {
-		mb_load_file(bas, argv[1]);
-		mb_run(bas);
+		if(mb_load_file(bas, argv[1]) == MB_FUNC_OK) {
+			mb_run(bas);
+		}
 	} else {
 		printf("Unknown arguments\n");
 		show_tip();
