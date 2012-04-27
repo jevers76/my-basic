@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2012 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -52,11 +52,11 @@ extern "C" {
 #	define real_t float
 #endif
 
-#ifdef __APPLE__
+#ifndef _MSC_VER
 #	ifndef _strcmpi
 #		define _strcmpi strcasecmp
 #	endif /* _strcmpi */
-#endif /* __APPLE__ */
+#endif /* _MSC_VER */
 
 #define MB_FUNC_OK 0
 #define MB_FUNC_ERR 1001
