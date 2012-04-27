@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2012 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -31,10 +31,8 @@
 
 #ifdef _MSC_VER
 #	include <crtdbg.h>
-#endif /* _MSC_VER */
-#ifndef __APPLE__
 #	include <conio.h>
-#endif /* __APPLE__ */
+#endif /* _MSC_VER */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,22 +54,22 @@ static int beep(mb_interpreter_t* s, void** l) {
 	return result;
 }
 
-static void on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p) {
+static void _on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p) {
 	if(SE_NO_ERR != e) {
 		printf("Error : [POS] %d, [CODE] %d, [MESSAGE] %s\n", p, e, m);
 	}
 }
 
-static void on_startup(void) {
+static void _on_startup(void) {
 	mb_init();
 
 	mb_open(&bas);
-	mb_set_error_handler(bas, on_error);
+	mb_set_error_handler(bas, _on_error);
 
 	mb_reg_fun(bas, beep);
 }
 
-static void on_exit(void) {
+static void _on_exit(void) {
 	mb_close(&bas);
 
 	mb_dispose();
@@ -81,7 +79,7 @@ static void on_exit(void) {
 #endif /* _MSC_VER */
 }
 
-static void clear_screen(void) {
+static void _clear_screen(void) {
 #ifdef _MSC_VER
 	system("cls");
 #else
@@ -89,14 +87,14 @@ static void clear_screen(void) {
 #endif
 }
 
-static void show_tip(void) {
+static void _show_tip(void) {
 	printf("MY-BASIC Interpreter Shell - %s\n", mb_ver_string());
-	printf("Copyright (c) 2011 Tony's Toy. All Rights Reserved.\n");
+	printf("Copyright (c) 2011 - 2012 Tony's Toy. All Rights Reserved.\n");
 	printf("For more information, see http://code.google.com/p/my-basic/\n");
 	printf("Input HELP and hint enter to view help information\n");
 }
 
-static void show_help(void) {
+static void _show_help(void) {
 	printf("Usage:\n");
 	printf("  CLS   - Clear screen\n");
 	printf("  NEW   - Clear current program\n");
@@ -104,7 +102,7 @@ static void show_help(void) {
 	printf("  BYE   - Quit interpreter\n");
 }
 
-static int do_line(void) {
+static int _do_line(void) {
 	int result = MB_FUNC_OK;
 	char line[_MAX_LINE_LENGTH];
 
@@ -116,7 +114,7 @@ static int do_line(void) {
 	if(_str_eq(line, "")) {
 		/* Do nothing */
 	} else if(_str_eq(line, "HELP")) {
-		show_help();
+		_show_help();
 	} else if(_str_eq(line, "BYE")) {
 		result = MB_FUNC_END;
 	} else if(_str_eq(line, "NEW")) {
@@ -125,7 +123,7 @@ static int do_line(void) {
 		result = mb_run(bas);
 		printf("\n");
 	} else if(_str_eq(line, "CLS")) {
-		clear_screen();
+		_clear_screen();
 	} else {
 		result = mb_load_string(bas, line);
 	}
@@ -140,14 +138,14 @@ int main(int argc, char* argv[]) {
 	_CrtSetBreakAlloc(0);
 #endif /* _MSC_VER */
 
-	atexit(on_exit);
+	atexit(_on_exit);
 
-	on_startup();
+	_on_startup();
 
 	if(argc == 1) {
-		show_tip();
+		_show_tip();
 		do {
-			status = do_line();
+			status = _do_line();
 		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status);
 	} else if(argc == 2) {
 		if(mb_load_file(bas, argv[1]) == MB_FUNC_OK) {
@@ -155,7 +153,7 @@ int main(int argc, char* argv[]) {
 		}
 	} else {
 		printf("Unknown arguments\n");
-		show_tip();
+		_show_tip();
 	}
 
 	return 0;

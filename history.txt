@@ -1,3 +1,7 @@
+Apr. 27 2012
+Fixed a string connecting crash bug, thanks to Ahmad Hawwash for pointing it out
+Improved portability on gcc
+
 Aug. 3 2011
 Fixed hashtable removing bug
 

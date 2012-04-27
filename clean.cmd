@@ -18,4 +18,3 @@ del /f /s /q output\*.pdb
 del /f /s /q output\*.idb
 
 echo Cleaning done!
-echo. & pause

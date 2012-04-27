@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2012 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -29,10 +29,10 @@
 #	endif /* _CRT_SECURE_NO_WARNINGS */
 #endif /* _MSC_VER */
 
-#ifndef __APPLE__
+#ifdef _MSC_VER
 #	include <malloc.h>
 #	include <conio.h>
-#endif /* __APPLE__ */
+#endif /* _MSC_VER */
 #include <memory.h>
 #include <assert.h>
 #include <string.h>
@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 13
-#define _MB_VERSION ((_VER_MAJOR << 24) | (_VER_MINOR << 16) | (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0013"
+#define _VER_REVISION 14
+#define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
+#define _MB_VERSION_STRING "1.0.0014"
 
 /* Helper */
 #ifndef sgn
@@ -1472,13 +1472,22 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 	opnd = _ls_create();
 
 	c = (_object_t*)(ast->data);
-	if(c->type == _DT_STRING) {
-		(*val)->type = _DT_STRING;
-		(*val)->data.string = c->data.string;
-		(*val)->ref = true;
-		ast = ast->next;
-		goto _exit;
-	}
+	do {
+		if(c->type == _DT_STRING) {
+			if(ast->next) {
+				_object_t* _fsn = (_object_t*)ast->next->data;
+				if(_fsn->type == _DT_FUNC && _fsn->data.func->pointer == _core_add) {
+					break;
+				}
+			}
+
+			(*val)->type = _DT_STRING;
+			(*val)->data.string = c->data.string;
+			(*val)->ref = true;
+			ast = ast->next;
+			goto _exit;
+		}
+	} while(0);
 	guard_val = c;
 	ast = ast->next;
 	_ls_pushback(optr, _exp_assign);
