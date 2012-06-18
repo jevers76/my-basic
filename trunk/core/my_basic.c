@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 14
+#define _VER_REVISION 16
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0014"
+#define _MB_VERSION_STRING "1.0.0016"
 
 /* Helper */
 #ifndef sgn
@@ -178,6 +178,8 @@ static const char* _ERR_DESC[] = {
 	"UNTIL statement expected",
 	"Loop variable expected",
 	"Jump label expected",
+	/** Extended abort */
+	"Extended abort",
 };
 
 /* Data type */
@@ -331,6 +333,10 @@ static _object_t* _exp_assign = 0;
 				opndv1.type == _DT_INT ? opndv1.data.integer : opndv1.data.float_point, \
 				opndv2.type == _DT_INT ? opndv2.data.integer : opndv2.data.float_point); \
 		} \
+		if(val->type == _DT_REAL && (real_t)(int_t)val->data.float_point == val->data.float_point) { \
+			val->type = _DT_INT; \
+			val->data.integer = (int_t)val->data.float_point; \
+		} \
 	}
 #define _instruct_num_op_num(__optr, __tuple) \
 	{ \
@@ -361,6 +367,10 @@ static _object_t* _exp_assign = 0;
 			val->data.float_point = (real_t) \
 				((opndv1.type == _DT_INT ? opndv1.data.integer : opndv1.data.float_point) __optr \
 				(opndv2.type == _DT_INT ? opndv2.data.integer : opndv2.data.float_point)); \
+		} \
+		if(val->type == _DT_REAL && (real_t)(int_t)val->data.float_point == val->data.float_point) { \
+			val->type = _DT_INT; \
+			val->data.integer = (int_t)val->data.float_point; \
 		} \
 	}
 #define _instruct_int_op_int(__optr, __tuple) \
@@ -3206,7 +3216,7 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 		if(status) {
 			_set_error_pos(s, i);
 			if(s->error_handler) {
-				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos);
+				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
 			}
 			goto _exit;
 		}
@@ -3242,7 +3252,7 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 			if(status) {
 				_set_error_pos(s, i);
 				if(s->error_handler) {
-					(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos);
+					(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
 				}
 				goto _exit;
 			}
@@ -3282,7 +3292,7 @@ int mb_run(mb_interpreter_t* s) {
 			_set_current_error(s, SE_RN_EMPTY_PROGRAM);
 			_set_error_pos(s, 0);
 			result = MB_FUNC_ERR;
-			(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos);
+			(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
 			goto _exit;
 		}
 	}
@@ -3291,7 +3301,10 @@ int mb_run(mb_interpreter_t* s) {
 		result = _execute_statement(s, &ast);
 		if(result != MB_FUNC_OK) {
 			if(result != MB_FUNC_SUSPEND && s->error_handler) {
-				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos);
+				if(result >= MB_EXTENDED_ABORT) {
+					s->last_error = SE_EA_EXTENDED_ABORT;
+				}
+				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
 			}
 			goto _exit;
 		}

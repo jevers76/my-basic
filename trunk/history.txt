@@ -1,3 +1,9 @@
+Jun. 18 2012
+Implemented user extended abort, thanks to Bruce Kendall for giving suggestion
+
+Apr. 30 2012
+Compress number to integer if necessary
+
 Apr. 27 2012
 Fixed a string connecting crash bug, thanks to Ahmad Hawwash for pointing it out
 Improved portability on gcc
