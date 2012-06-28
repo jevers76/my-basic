@@ -4159,7 +4159,7 @@ _loop_begin:
 				_skip_to(s, &ast, 0, _DT_EOS);
 				result = MB_FUNC_OK;
 				goto _exit;
-			} else if(result != MB_FUNC_OK) { /* Normally */
+			} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 				goto _exit;
 			}
 
@@ -4229,7 +4229,7 @@ _loop_begin:
 			_skip_to(s, &ast, 0, _DT_EOS);
 			result = MB_FUNC_OK;
 			goto _exit;
-		} else if(result != MB_FUNC_OK) { /* Normally */
+		} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 			goto _exit;
 		}
 
