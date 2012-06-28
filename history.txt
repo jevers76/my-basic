@@ -1,3 +1,8 @@
+Jun. 28 2012
+Fixed a cross routine RETURN bug, thanks to Bruce Kendall for pointing it out
+Fixed some memory leak
+Refactored error position informing
+
 Jun. 18 2012
 Implemented user extended abort, thanks to Bruce Kendall for giving suggestion
 
