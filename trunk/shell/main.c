@@ -54,9 +54,9 @@ static int beep(mb_interpreter_t* s, void** l) {
 	return result;
 }
 
-static void _on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p, int abort_code) {
+static void _on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p, unsigned short row, unsigned short col, int abort_code) {
 	if(SE_NO_ERR != e) {
-		printf("Error : [POS] %d, [CODE] %d, [MESSAGE] %s, [ABORT CODE] %d\n", p, e, m, abort_code);
+		printf("Error :\n    [POS] %d, [ROW] %d, [COL] %d,\n    [CODE] %d, [MESSAGE] %s, [ABORT CODE] %d\n", p, row, col, e, m, abort_code);
 	}
 }
 

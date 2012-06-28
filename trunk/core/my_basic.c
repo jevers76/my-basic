@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 16
+#define _VER_REVISION 17
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0016"
+#define _MB_VERSION_STRING "1.0.0017"
 
 /* Helper */
 #ifndef sgn
@@ -240,6 +240,8 @@ typedef struct _object_t {
 	} data;
 	bool_t ref;
 	int source_pos;
+	unsigned short source_row;
+	unsigned short source_col;
 } _object_t;
 
 static const _object_t _OBJ_INT_UNIT = { _DT_INT, 1, false, 0 };
@@ -495,12 +497,16 @@ static bool_t _is_expression_terminal(mb_interpreter_t* s, _object_t* obj);
 static int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val);
 
 /** Others */
-#define _handle_error(__s, __err, __pos, __ret, __exit) \
+#define _handle_error(__s, __err, __pos, __row, __col, __ret, __exit) \
 	{ \
 		_set_current_error(__s, __err); \
-		_set_error_pos(__s, __pos); \
+		_set_error_pos(__s, __pos, __row, __col); \
 		result = __ret; \
 		goto __exit; \
+	}
+#define _handle_error_on_obj(__s, __err, __obj, __ret, __exit) \
+	{ \
+		_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit); \
 	}
 
 static void _set_current_error(mb_interpreter_t* s, mb_error_e err);
@@ -516,13 +522,13 @@ static bool_t _is_identifier_char(char c);
 static bool_t _is_operator_char(char c);
 
 static int _append_char_to_symbol(mb_interpreter_t* s, char c);
-static int _cut_symbol(mb_interpreter_t* s, int pos);
-static int _append_symbol(mb_interpreter_t* s, char* sym, bool_t* delsym, int pos);
+static int _cut_symbol(mb_interpreter_t* s, int pos, unsigned short row, unsigned short col);
+static int _append_symbol(mb_interpreter_t* s, char* sym, bool_t* delsym, int pos, unsigned short row, unsigned short col);
 static int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** obj, _ls_node_t*** asgn, bool_t* delsym);
 static _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value);
 
-static int _parse_char(mb_interpreter_t* s, char c, int pos);
-static void _set_error_pos(mb_interpreter_t* s, int pos);
+static int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsigned short col);
+static void _set_error_pos(mb_interpreter_t* s, int pos, unsigned short row, unsigned short col);
 
 static int_t _get_size_of(_data_e type);
 static bool_t _try_get_value(_object_t* obj, mb_value_u* val, _data_e expected);
@@ -1423,7 +1429,7 @@ _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opn
 		safe_free(result);
 		result = 0;
 		_set_current_error(s, SE_RN_OPERATION_FAILED);
-		_set_error_pos(s, optr->source_pos);
+		_set_error_pos(s, optr->source_pos, optr->source_row, optr->source_col);
 	}
 
 	return result;
@@ -1723,7 +1729,7 @@ int _append_char_to_symbol(mb_interpreter_t* s, char c) {
 	return result;
 }
 
-int _cut_symbol(mb_interpreter_t* s, int pos) {
+int _cut_symbol(mb_interpreter_t* s, int pos, unsigned short row, unsigned short col) {
 	/* Current symbol parsing done and cut it */
 	int result = MB_FUNC_OK;
 	_parsing_context_t* context = 0;
@@ -1738,7 +1744,7 @@ int _cut_symbol(mb_interpreter_t* s, int pos) {
 		sym = (char*)malloc(context->current_symbol_nonius + 1);
 		memcpy(sym, context->current_symbol, context->current_symbol_nonius + 1);
 
-		status = _append_symbol(s, sym, &delsym, pos);
+		status = _append_symbol(s, sym, &delsym, pos, row, col);
 		if(status || delsym) {
 			safe_free(sym);
 		}
@@ -1750,7 +1756,7 @@ int _cut_symbol(mb_interpreter_t* s, int pos) {
 	return result;
 }
 
-int _append_symbol(mb_interpreter_t* s, char* sym, bool_t* delsym, int pos) {
+int _append_symbol(mb_interpreter_t* s, char* sym, bool_t* delsym, int pos, unsigned short row, unsigned short col) {
 	/* Append cut current symbol to AST list */
 	int result = MB_FUNC_OK;
 	_ls_node_t* ast = 0;
@@ -1765,6 +1771,8 @@ int _append_symbol(mb_interpreter_t* s, char* sym, bool_t* delsym, int pos) {
 	result = _create_symbol(s, ast, sym, &obj, &assign, delsym);
 	if(obj) {
 		obj->source_pos = pos;
+		obj->source_row = row;
+		obj->source_col = col;
 
 		node = _ls_pushback(ast, obj);
 		if(assign) {
@@ -1875,7 +1883,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 				if(value) {
 					*delsym = true;
 
-					_handle_error(s, SE_RN_COLON_EXPECTED, ((_object_t*)(_ls_back(l)->data))->source_pos, MB_PARSING_ERR, _exit);
+					_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, ((_object_t*)(_ls_back(l)->data)), MB_PARSING_ERR, _exit);
 				} else {
 					tmp.label = (_label_t*)malloc(sizeof(_label_t));
 					memset(tmp.label, 0, sizeof(_label_t));
@@ -2013,7 +2021,7 @@ _exit:
 	return result;
 }
 
-int _parse_char(mb_interpreter_t* s, char c, int pos) {
+int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsigned short col) {
 	/* Parse a char */
 	int result = MB_FUNC_OK;
 	_parsing_context_t* context = 0;
@@ -2030,23 +2038,23 @@ int _parse_char(mb_interpreter_t* s, char c, int pos) {
 		}
 
 		if(_is_blank(c)) { /*   */
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 		} else if(_is_newline(c)) { /* \r \n EOF*/
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			result += _append_char_to_symbol(s, _EOS);
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 		} else if(_is_separator(c) || _is_bracket(c)) { /* , ; : ( ) */
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			result += _append_char_to_symbol(s, c);
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 		} else if(_is_quotation_mark(c)) { /* " */
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			result += _append_char_to_symbol(s, c);
 			context->parsing_state = _PS_STRING;
 		} else if(_is_comment(c)) { /* ' */
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			result += _append_char_to_symbol(s, _EOS);
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			context->parsing_state = _PS_COMMENT;
 		} else {
 			if(context->symbol_state == _SS_IDENTIFIER) {
@@ -2054,20 +2062,20 @@ int _parse_char(mb_interpreter_t* s, char c, int pos) {
 					result += _append_char_to_symbol(s, c);
 				} else if(_is_operator_char(c)) {
 					context->symbol_state = _SS_OPERATOR;
-					result += _cut_symbol(s, pos);
+					result += _cut_symbol(s, pos, row, col);
 					result += _append_char_to_symbol(s, c);
 				} else {
-					_handle_error(s, SE_PS_INVALID_CHAR, pos, MB_FUNC_ERR, _exit);
+					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit);
 				}
 			} else if(context->symbol_state == _SS_OPERATOR) {
 				if(_is_identifier_char(c)) {
 					context->symbol_state = _SS_IDENTIFIER;
-					result += _cut_symbol(s, pos);
+					result += _cut_symbol(s, pos, row, col);
 					result += _append_char_to_symbol(s, c);
 				} else if(_is_operator_char(c)) {
 					result += _append_char_to_symbol(s, c);
 				} else {
-					_handle_error(s, SE_PS_INVALID_CHAR, pos, MB_FUNC_ERR, _exit);
+					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit);
 				}
 			} else {
 				assert(0 && "Impossible here");
@@ -2076,7 +2084,7 @@ int _parse_char(mb_interpreter_t* s, char c, int pos) {
 	} else if(context->parsing_state == _PS_STRING) {
 		if(_is_quotation_mark(c)) { /* " */
 			result += _append_char_to_symbol(s, c);
-			result += _cut_symbol(s, pos);
+			result += _cut_symbol(s, pos, row, col);
 			context->parsing_state = _PS_NORMAL;
 		} else {
 			result += _append_char_to_symbol(s, c);
@@ -2095,11 +2103,13 @@ _exit:
 	return result;
 }
 
-void _set_error_pos(mb_interpreter_t* s, int pos) {
+void _set_error_pos(mb_interpreter_t* s, int pos, unsigned short row, unsigned short col) {
 	/* Set the position of a parsing error */
 	assert(s);
 
 	s->last_error_pos = pos;
+	s->last_error_row = row;
+	s->last_error_col = col;
 }
 
 int_t _get_size_of(_data_e type) {
@@ -2156,17 +2166,17 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast || ((_object_t*)(ast->data))->type != _DT_ARRAY) {
-		_handle_error(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	arr = (_object_t*)(ast->data);
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
-		_handle_error(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
@@ -2177,16 +2187,16 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 		}
 		len = subscript_ptr;
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer < 0) {
-			_handle_error(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(dcount + 1 > arr->data.array->dimension_count) {
-			_handle_error(s, SE_RN_DIMENSION_OUT_OF_BOUND, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_OUT_OF_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer > arr->data.array->dimensions[dcount]) {
-			_handle_error(s, SE_RN_ARRAY_OUT_OF_BOUND, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ARRAY_OUT_OF_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(idx) {
 			idx *= val.integer;
@@ -2528,7 +2538,7 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 		default:
 			break;
 	}
-	if(result != MB_FUNC_OK && result != MB_FUNC_SUSPEND) {
+	if(result != MB_FUNC_OK && result != MB_FUNC_SUSPEND && result != MB_SUB_RETURN) {
 		goto _exit;
 	}
 	if(ast) {
@@ -2554,7 +2564,7 @@ int _skip_to(mb_interpreter_t* s, _ls_node_t** l, mb_func_t f, _data_e t) {
 	assert(ast && ast->prev);
 	do {
 		if(!ast) {
-			_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(tmp->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(tmp->data)), MB_FUNC_ERR, _exit);
 		}
 		tmp = ast;
 		obj = (_object_t*)(ast->data);
@@ -2581,7 +2591,7 @@ int _skip_struct(mb_interpreter_t* s, _ls_node_t** l, mb_func_t open_func, mb_fu
 	count = 1;
 	do {
 		if(!ast->next) {
-			_handle_error(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		obj_prev = (_object_t*)(ast->data);
 		ast = ast->next;
@@ -2973,7 +2983,7 @@ int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC)) {
-		_handle_error(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -2995,7 +3005,7 @@ int mb_attempt_open_bracket(mb_interpreter_t* s, void** l) {
 	ast = ast->next;
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_open_bracket)) {
-		_handle_error(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -3016,7 +3026,7 @@ int mb_attempt_close_bracket(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_close_bracket)) {
-		_handle_error(s, SE_RN_CLOSE_BRACKET_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -3211,18 +3221,22 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 
 	do {
 		ch = l[i];
-		status = _parse_char(s, ch, i);
+		status = _parse_char(s, ch, i, 0, 0);
 		result = status;
 		if(status) {
-			_set_error_pos(s, i);
+			_set_error_pos(s, i, 0, 0);
 			if(s->error_handler) {
-				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
+				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
+					s->last_error_pos,
+					s->last_error_row,
+					s->last_error_col,
+					result);
 			}
 			goto _exit;
 		}
 		++i;
 	} while(l[i]);
-	status = _parse_char(s, _EOS, i);
+	status = _parse_char(s, _EOS, i, 0, 0);
 
 _exit:
 	context->parsing_state = _PS_NORMAL;
@@ -3237,6 +3251,11 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 	char ch = 0;
 	int status = 0;
 	int i = 0;
+	unsigned short row = 1;
+	unsigned short col = 0;
+	unsigned short _row = 0;
+	unsigned short _col = 0;
+	char wrapped = '\0';
 	_parsing_context_t* context = 0;
 
 	assert(s && s->parsing_context);
@@ -3247,18 +3266,32 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 	if(fp) {
 		do {
 			ch = fgetc(fp);
-			status = _parse_char(s, ch, i);
+			if((ch == '\n' || ch == '\r') && (!wrapped || wrapped == ch)) {
+				wrapped = ch;
+				++row;
+				col = 0;
+			} else {
+				wrapped = '\0';
+				++col;
+			}
+			status = _parse_char(s, ch, i, _row, _col);
 			result = status;
 			if(status) {
-				_set_error_pos(s, i);
+				_set_error_pos(s, i, _row, _col);
 				if(s->error_handler) {
-					(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
+					(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
+						s->last_error_pos,
+						s->last_error_row,
+						s->last_error_col,
+						result);
 				}
 				goto _exit;
 			}
+			_row = row;
+			_col = col;
 			++i;
 		} while(ch != EOF);
-		status = _parse_char(s, _EOS, i);
+		status = _parse_char(s, _EOS, i, row, col);
 
 		fclose(fp);
 	} else {
@@ -3290,21 +3323,29 @@ int mb_run(mb_interpreter_t* s) {
 		ast = ast->next;
 		if(!ast) {
 			_set_current_error(s, SE_RN_EMPTY_PROGRAM);
-			_set_error_pos(s, 0);
+			_set_error_pos(s, 0, 0, 0);
 			result = MB_FUNC_ERR;
-			(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
+			(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
+				s->last_error_pos,
+				s->last_error_row,
+				s->last_error_col,
+				result);
 			goto _exit;
 		}
 	}
 
 	do {
 		result = _execute_statement(s, &ast);
-		if(result != MB_FUNC_OK) {
+		if(result != MB_FUNC_OK && result != MB_SUB_RETURN) {
 			if(result != MB_FUNC_SUSPEND && s->error_handler) {
 				if(result >= MB_EXTENDED_ABORT) {
 					s->last_error = SE_EA_EXTENDED_ABORT;
 				}
-				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error), s->last_error_pos, result);
+				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
+					s->last_error_pos,
+					s->last_error_row,
+					s->last_error_col,
+					result);
 			}
 			goto _exit;
 		}
@@ -3383,7 +3424,7 @@ int _core_add(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_connect_strings(l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(+, l);
@@ -3479,7 +3520,7 @@ int _core_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(==, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(==, l);
@@ -3505,7 +3546,7 @@ int _core_less(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(<, l);
@@ -3531,7 +3572,7 @@ int _core_greater(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(>, l);
@@ -3557,7 +3598,7 @@ int _core_less_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<=, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(<=, l);
@@ -3583,7 +3624,7 @@ int _core_greater_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>=, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(>=, l);
@@ -3609,7 +3650,7 @@ int _core_not_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(!=, l);
 		} else {
-			_handle_error(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(!=, l);
@@ -3691,7 +3732,7 @@ int _core_let(mb_interpreter_t* s, void** l) {
 		ast = ast->next;
 	}
 	if(!ast || !ast->data) {
-		_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type == _DT_VAR) {
@@ -3703,16 +3744,16 @@ int _core_let(mb_interpreter_t* s, void** l) {
 			goto _exit;
 		}
 	} else {
-		_handle_error(s, SE_RN_VAR_OR_ARRAY_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_VAR_OR_ARRAY_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_FUNC || strcmp(obj->data.func->name, "=") != 0) {
-		_handle_error(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
@@ -3721,9 +3762,11 @@ int _core_let(mb_interpreter_t* s, void** l) {
 	result = _calc_expression(s, &ast, &val);
 
 	if(var) {
-		var->data->type = val->type;
-		var->data->data = val->data;
-		var->data->ref = val->ref;
+		if(val->type != _DT_ANY) {
+			var->data->type = val->type;
+			var->data->data = val->data;
+			var->data->ref = val->ref;
+		}
 	} else if(arr) {
 		mb_value_u _val;
 		if(val->type == _DT_INT) {
@@ -3759,7 +3802,7 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_ARRAY) {
-		_handle_error(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->next->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	arr = (_object_t*)(ast->data);
@@ -3768,25 +3811,25 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	dummy.name = arr->data.array->name;
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
-		_handle_error(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->next->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
 		/* Get an integer value */
 		len = (_object_t*)(ast->data);
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer <= 0) {
-			_handle_error(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		if(dummy.dimension_count >= _MAX_DIMENSION_COUNT) {
-			_handle_error(s, SE_RN_DIMENSION_TOO_MUCH, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_TOO_MUCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		dummy.dimensions[dummy.dimension_count++] = val.integer;
 		if(dummy.count) {
@@ -3834,7 +3877,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 	obj = (_object_t*)(ast->data);
 	if(val->data.integer) {
 		if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_then)) {
-			_handle_error(s, SE_RN_INTEGER_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 
 		do {
@@ -3864,7 +3907,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
 			if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_else)) {
-				_handle_error(s, SE_RN_ELSE_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+				_handle_error_on_obj(s, SE_RN_ELSE_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 			}
 
 			do {
@@ -3935,7 +3978,7 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_VAR) {
-		_handle_error(s, SE_RN_LOOP_VAR_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_LOOP_VAR_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	var_loop = obj->data.variable;
 
@@ -3947,12 +3990,12 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_to)) {
-		_handle_error(s, SE_RN_TO_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_TO_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
 	if(!ast) {
-		_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	to_node = ast;
 
@@ -3970,7 +4013,7 @@ _to:
 	} else {
 		ast = ast->next;
 		if(!ast) {
-			_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 
 		result = _calc_expression(s, &ast, &step_val_ptr);
@@ -4011,7 +4054,7 @@ _to:
 				_skip_to(s, &ast, 0, _DT_EOS);
 				result = MB_FUNC_OK;
 				goto _exit;
-			} else if(result != MB_FUNC_OK) { /* Normally */
+			} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 				goto _exit;
 			}
 
@@ -4165,7 +4208,7 @@ int _core_do(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_EOS)) {
-		_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -4195,7 +4238,7 @@ _loop_begin:
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_until)) {
-		_handle_error(s, SE_RN_UNTIL_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_UNTIL_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -4256,14 +4299,14 @@ int _core_goto(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_LABEL) {
-		_handle_error(s, SE_RN_JUMP_LABEL_EXPECTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_JUMP_LABEL_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 
 	label = (_label_t*)(obj->data.label);
 	if(!label->node) {
 		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, label->name);
 		if(!(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_LABEL)) {
-			_handle_error(s, SE_RN_LABEL_NOT_EXISTS, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_LABEL_NOT_EXISTS, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 		}
 		label->node = ((_object_t*)(glbsyminscope->data))->data.label->node;
 	}
@@ -4297,7 +4340,7 @@ int _core_gosub(mb_interpreter_t* s, void** l) {
 
 int _core_return(mb_interpreter_t* s, void** l) {
 	/* RETURN statement */
-	int result = MB_FUNC_OK;
+	int result = MB_SUB_RETURN;
 	_ls_node_t* ast = 0;
 	_running_context_t* running = 0;
 
@@ -4306,7 +4349,7 @@ int _core_return(mb_interpreter_t* s, void** l) {
 	running = (_running_context_t*)(s->running_context);
 	ast = (_ls_node_t*)_ls_popback(running->sub_stack);
 	if(!ast) {
-		_handle_error(s, SE_RN_NO_RETURN_POINT, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_NO_RETURN_POINT, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 	*l = ast;
 
@@ -4951,7 +4994,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error(s, SE_RN_SYNTAX, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 	}
 
 	obj = (_object_t*)(ast->data);
@@ -5017,7 +5060,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 				}
 				break;
 			default:
-				_handle_error(s, SE_RN_NOT_SUPPORTED, ((_object_t*)(ast->data))->source_pos, MB_FUNC_ERR, _exit);
+				_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
 				break;
 		}
 

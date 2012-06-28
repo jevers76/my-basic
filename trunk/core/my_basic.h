@@ -65,6 +65,7 @@ extern "C" {
 #define MB_PARSING_ERR 3001
 #define MB_LOOP_BREAK 5001
 #define MB_LOOP_CONTINUE 5002
+#define MB_SUB_RETURN 5101
 #define MB_EXTENDED_ABORT 9001
 
 #define mb_check(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
@@ -137,7 +138,7 @@ typedef struct mb_value_t {
 	mb_value_u value;
 } mb_value_t;
 
-typedef void (* mb_error_handler_t)(struct mb_interpreter_t*, enum mb_error_e, char*, int, int);
+typedef void (* mb_error_handler_t)(struct mb_interpreter_t*, enum mb_error_e, char*, int, unsigned short, unsigned short, int);
 typedef int (* mb_func_t)(struct mb_interpreter_t*, void**);
 
 typedef struct mb_interpreter_t {
@@ -149,6 +150,8 @@ typedef struct mb_interpreter_t {
 	void* running_context;
 	mb_error_e last_error;
 	int last_error_pos;
+	unsigned short last_error_row;
+	unsigned short last_error_col;
 	mb_error_handler_t error_handler;
 } mb_interpreter_t;
 
