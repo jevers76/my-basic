@@ -58,22 +58,33 @@ extern "C" {
 #	endif /* _strcmpi */
 #endif /* _MSC_VER */
 
-#define MB_FUNC_OK 0
-#define MB_FUNC_ERR 1001
-#define MB_FUNC_END 1002
-#define MB_FUNC_SUSPEND 1003
-#define MB_PARSING_ERR 3001
-#define MB_LOOP_BREAK 5001
-#define MB_LOOP_CONTINUE 5002
-#define MB_SUB_RETURN 5101
-#define MB_EXTENDED_ABORT 9001
+#ifndef MB_CODES
+#	define MB_CODES
+#	define MB_FUNC_OK 0
+#	define MB_FUNC_ERR 1001
+#	define MB_FUNC_END 1002
+#	define MB_FUNC_SUSPEND 1003
+#	define MB_PARSING_ERR 3001
+#	define MB_LOOP_BREAK 5001
+#	define MB_LOOP_CONTINUE 5002
+#	define MB_SUB_RETURN 5101
+#	define MB_EXTENDED_ABORT 9001
+#endif /* MB_CODES */
 
-#define mb_check(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
+#ifndef mb_check
+#	define mb_check(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
+#endif /* mb_check */
 
-#define MBAPI
+#ifndef MBAPI
+#	define MBAPI
+#endif /* MBAPI */
 
-#define mb_reg_fun(__s, __f) mb_register_func(__s, #__f, __f)
-#define mb_rem_fun(__s, __f) mb_remove_func(__s, #__f)
+#ifndef mb_reg_fun
+#	define mb_reg_fun(__s, __f) mb_register_func(__s, #__f, __f)
+#endif /* mb_reg_fun */
+#ifndef mb_rem_fun
+#	define mb_rem_fun(__s, __f) mb_remove_func(__s, #__f)
+#endif /* mb_rem_fun */
 
 struct mb_interpreter_t;
 
@@ -140,6 +151,7 @@ typedef struct mb_value_t {
 
 typedef void (* mb_error_handler_t)(struct mb_interpreter_t*, enum mb_error_e, char*, int, unsigned short, unsigned short, int);
 typedef int (* mb_func_t)(struct mb_interpreter_t*, void**);
+typedef int (* mb_print_func_t)(const char* format, ...);
 
 typedef struct mb_interpreter_t {
 	void* local_func_dict;
@@ -153,6 +165,8 @@ typedef struct mb_interpreter_t {
 	unsigned short last_error_row;
 	unsigned short last_error_col;
 	mb_error_handler_t error_handler;
+	mb_print_func_t printer;
+	void* userdata;
 } mb_interpreter_t;
 
 MBAPI unsigned int mb_ver(void);
@@ -187,6 +201,7 @@ MBAPI int mb_suspend(mb_interpreter_t* s, void** l);
 MBAPI mb_error_e mb_get_last_error(mb_interpreter_t* s);
 MBAPI const char* mb_get_error_desc(mb_error_e err);
 MBAPI int mb_set_error_handler(mb_interpreter_t* s, mb_error_handler_t h);
+MBAPI int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p);
 
 #pragma pack()
 

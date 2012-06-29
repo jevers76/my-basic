@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 17
+#define _VER_REVISION 18
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0017"
+#define _MB_VERSION_STRING "1.0.0018"
 
 /* Helper */
 #ifndef sgn
@@ -92,7 +92,11 @@ extern "C" {
 #	endif /* _strupr */
 #endif /* __APPLE__ */
 
-#define safe_free(__p) { if(__p) { free(__p); __p = 0; } else { assert(0 && "Memory already released"); } }
+#ifndef safe_free
+#	define safe_free(__p) { if(__p) { free(__p); __p = 0; } else { assert(0 && "Memory already released"); } }
+#endif /* safe_free */
+
+#define DON(__o) (__o ? ((_object_t*)(__o->data)) : 0)
 
 /* Hash table size */
 #define _HT_ARRAY_SIZE_SMALL 193
@@ -506,11 +510,17 @@ static int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val
 	}
 #define _handle_error_on_obj(__s, __err, __obj, __ret, __exit) \
 	{ \
-		_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit); \
+		if(__obj) { \
+			_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit); \
+		} else { \
+			_handle_error(__s, __err, 0, 0, 0, __ret, __exit); \
+		} \
 	}
 
 static void _set_current_error(mb_interpreter_t* s, mb_error_e err);
 static const char* _get_error_desc(mb_error_e err);
+
+static mb_print_func_t _get_printer(mb_interpreter_t* s);
 
 static bool_t _is_blank(char c);
 static bool_t _is_newline(char c);
@@ -1579,28 +1589,28 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 		} else {
 			pri = _get_priority(((_object_t*)(_ls_back(optr)->data))->data.func->pointer, c->data.func->pointer);
 			switch(pri) {
-				case '<':
-					_ls_pushback(optr, c);
-					c = (_object_t*)(ast->data);
-					ast = ast->next;
-					break;
-				case '=':
-					x = (_object_t*)_ls_popback(optr);
-					c = (_object_t*)(ast->data);
-					ast = ast->next;
-					break;
-				case '>':
-					theta = (_object_t*)_ls_popback(optr);
-					b = (_object_t*)_ls_popback(opnd);
-					a = (_object_t*)_ls_popback(opnd);
-					r = _operate_operand(s, theta, a, b);
-					assert(r);
-					_ls_pushback(opnd, r);
-					_ls_pushback(garbage, r);
-					if(c->type == _DT_FUNC && c->data.func->pointer == _core_close_bracket) {
-						hack = true;
-					}
-					break;
+			case '<':
+				_ls_pushback(optr, c);
+				c = (_object_t*)(ast->data);
+				ast = ast->next;
+				break;
+			case '=':
+				x = (_object_t*)_ls_popback(optr);
+				c = (_object_t*)(ast->data);
+				ast = ast->next;
+				break;
+			case '>':
+				theta = (_object_t*)_ls_popback(optr);
+				b = (_object_t*)_ls_popback(opnd);
+				a = (_object_t*)_ls_popback(opnd);
+				r = _operate_operand(s, theta, a, b);
+				assert(r);
+				_ls_pushback(opnd, r);
+				_ls_pushback(garbage, r);
+				if(c->type == _DT_FUNC && c->data.func->pointer == _core_close_bracket) {
+					hack = true;
+				}
+				break;
 			}
 		}
 	}
@@ -1657,6 +1667,17 @@ const char* _get_error_desc(mb_error_e err) {
 	assert(err >= 0 && err < _countof(_ERR_DESC));
 
 	return _ERR_DESC[err];
+}
+
+mb_print_func_t _get_printer(mb_interpreter_t* s) {
+	/* Get a print functor according to an interpreter */
+	assert(s);
+
+	if(s->printer) {
+		return s->printer;
+	}
+
+	return printf;
 }
 
 bool_t _is_blank(char c) {
@@ -1806,41 +1827,91 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 	type = _get_symbol_type(s, sym, &value);
 	(*obj)->type = type;
 	switch(type) {
-		case _DT_INT:
-			tmp.any = value;
-			(*obj)->data.integer = tmp.integer;
-			safe_free(sym);
-			break;
-		case _DT_REAL:
-			tmp.any = value;
-			(*obj)->data.float_point = tmp.float_point;
-			safe_free(sym);
-			break;
-		case _DT_STRING:
-			(*obj)->data.string = (char*)malloc(strlen(sym) - 2 + 1);
-			memcpy((*obj)->data.string, sym + sizeof(char), strlen(sym) - 2);
-			(*obj)->data.string[strlen(sym) - 2] = '\0';
+	case _DT_INT:
+		tmp.any = value;
+		(*obj)->data.integer = tmp.integer;
+		safe_free(sym);
+		break;
+	case _DT_REAL:
+		tmp.any = value;
+		(*obj)->data.float_point = tmp.float_point;
+		safe_free(sym);
+		break;
+	case _DT_STRING:
+		(*obj)->data.string = (char*)malloc(strlen(sym) - 2 + 1);
+		memcpy((*obj)->data.string, sym + sizeof(char), strlen(sym) - 2);
+		(*obj)->data.string[strlen(sym) - 2] = '\0';
+		*delsym = true;
+		break;
+	case _DT_FUNC:
+		tmp.func = (_func_t*)malloc(sizeof(_func_t));
+		memset(tmp.func, 0, sizeof(_func_t));
+		tmp.func->name = sym;
+		tmp.func->pointer = (mb_func_t)value;
+		(*obj)->data.func = tmp.func;
+		break;
+	case _DT_ARRAY:
+		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
+		if(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_ARRAY) {
+			(*obj)->data.array = ((_object_t*)(glbsyminscope->data))->data.array;
+			(*obj)->ref = true;
 			*delsym = true;
-			break;
-		case _DT_FUNC:
-			tmp.func = (_func_t*)malloc(sizeof(_func_t));
-			memset(tmp.func, 0, sizeof(_func_t));
-			tmp.func->name = sym;
-			tmp.func->pointer = (mb_func_t)value;
-			(*obj)->data.func = tmp.func;
-			break;
-		case _DT_ARRAY:
-			glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
-			if(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_ARRAY) {
-				(*obj)->data.array = ((_object_t*)(glbsyminscope->data))->data.array;
-				(*obj)->ref = true;
+		} else {
+			tmp.array = (_array_t*)malloc(sizeof(_array_t));
+			memset(tmp.array, 0, sizeof(_array_t));
+			tmp.array->name = sym;
+			tmp.array->type = (_data_e)(int)(long)value;
+			(*obj)->data.array = tmp.array;
+
+			ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
+			assert(ul);
+
+			*obj = (_object_t*)malloc(sizeof(_object_t));
+			memset(*obj, 0, sizeof(_object_t));
+			(*obj)->type = type;
+			(*obj)->data.array = tmp.array;
+			(*obj)->ref = true;
+		}
+		break;
+	case _DT_VAR:
+		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
+		if(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_VAR) {
+			(*obj)->data.variable = ((_object_t*)(glbsyminscope->data))->data.variable;
+			(*obj)->ref = true;
+			*delsym = true;
+		} else {
+			tmp.var = (_var_t*)malloc(sizeof(_var_t));
+			memset(tmp.var, 0, sizeof(_var_t));
+			tmp.var->name = sym;
+			tmp.var->data = (_object_t*)malloc(sizeof(_object_t));
+			memset(tmp.var->data, 0, sizeof(_object_t));
+			tmp.var->data->type = (sym[strlen(sym) - 1] == '$') ? _DT_STRING : _DT_INT;
+			tmp.var->data->data.integer = 0;
+			(*obj)->data.variable = tmp.var;
+
+			ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
+			assert(ul);
+
+			*obj = (_object_t*)malloc(sizeof(_object_t));
+			memset(*obj, 0, sizeof(_object_t));
+			(*obj)->type = type;
+			(*obj)->data.variable = tmp.var;
+			(*obj)->ref = true;
+		}
+		break;
+	case _DT_LABEL:
+		if(context->current_char == ':') {
+			if(value) {
+				_ls_node_t* _n = _ls_back(l);
 				*delsym = true;
+
+				_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(_n), MB_PARSING_ERR, _exit);
 			} else {
-				tmp.array = (_array_t*)malloc(sizeof(_array_t));
-				memset(tmp.array, 0, sizeof(_array_t));
-				tmp.array->name = sym;
-				tmp.array->type = (_data_e)(int)(long)value;
-				(*obj)->data.array = tmp.array;
+				tmp.label = (_label_t*)malloc(sizeof(_label_t));
+				memset(tmp.label, 0, sizeof(_label_t));
+				tmp.label->name = sym;
+				*asgn = &(tmp.label->node);
+				(*obj)->data.label = tmp.label;
 
 				ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
 				assert(ul);
@@ -1848,73 +1919,24 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 				*obj = (_object_t*)malloc(sizeof(_object_t));
 				memset(*obj, 0, sizeof(_object_t));
 				(*obj)->type = type;
-				(*obj)->data.array = tmp.array;
+				(*obj)->data.label = tmp.label;
 				(*obj)->ref = true;
 			}
-			break;
-		case _DT_VAR:
-			glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
-			if(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_VAR) {
-				(*obj)->data.variable = ((_object_t*)(glbsyminscope->data))->data.variable;
-				(*obj)->ref = true;
-				*delsym = true;
-			} else {
-				tmp.var = (_var_t*)malloc(sizeof(_var_t));
-				memset(tmp.var, 0, sizeof(_var_t));
-				tmp.var->name = sym;
-				tmp.var->data = (_object_t*)malloc(sizeof(_object_t));
-				memset(tmp.var->data, 0, sizeof(_object_t));
-				tmp.var->data->type = (sym[strlen(sym) - 1] == '$') ? _DT_STRING : _DT_INT;
-				tmp.var->data->data.integer = 0;
-				(*obj)->data.variable = tmp.var;
-
-				ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
-				assert(ul);
-
-				*obj = (_object_t*)malloc(sizeof(_object_t));
-				memset(*obj, 0, sizeof(_object_t));
-				(*obj)->type = type;
-				(*obj)->data.variable = tmp.var;
-				(*obj)->ref = true;
-			}
-			break;
-		case _DT_LABEL:
-			if(context->current_char == ':') {
-				if(value) {
-					*delsym = true;
-
-					_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, ((_object_t*)(_ls_back(l)->data)), MB_PARSING_ERR, _exit);
-				} else {
-					tmp.label = (_label_t*)malloc(sizeof(_label_t));
-					memset(tmp.label, 0, sizeof(_label_t));
-					tmp.label->name = sym;
-					*asgn = &(tmp.label->node);
-					(*obj)->data.label = tmp.label;
-
-					ul = _ht_set_or_insert((_ht_node_t*)s->global_var_dict, sym, *obj);
-					assert(ul);
-
-					*obj = (_object_t*)malloc(sizeof(_object_t));
-					memset(*obj, 0, sizeof(_object_t));
-					(*obj)->type = type;
-					(*obj)->data.label = tmp.label;
-					(*obj)->ref = true;
-				}
-			} else {
-				(*obj)->data.label = (_label_t*)malloc(sizeof(_label_t));
-				memset((*obj)->data.label, 0, sizeof(_label_t));
-				(*obj)->data.label->name = sym;
-			}
-			break;
-		case _DT_SEP:
-			(*obj)->data.separator = sym[0];
-			safe_free(sym);
-			break;
-		case _DT_EOS:
-			safe_free(sym);
-			break;
-		default:
-			break;
+		} else {
+			(*obj)->data.label = (_label_t*)malloc(sizeof(_label_t));
+			memset((*obj)->data.label, 0, sizeof(_label_t));
+			(*obj)->data.label->name = sym;
+		}
+		break;
+	case _DT_SEP:
+		(*obj)->data.separator = sym[0];
+		safe_free(sym);
+		break;
+	case _DT_EOS:
+		safe_free(sym);
+		break;
+	default:
+		break;
 	}
 
 _exit:
@@ -2166,17 +2188,19 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast || ((_object_t*)(ast->data))->type != _DT_ARRAY) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	arr = (_object_t*)(ast->data);
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
-		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED,
+			(ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0,
+			MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
@@ -2187,16 +2211,16 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 		}
 		len = subscript_ptr;
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer < 0) {
-			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(dcount + 1 > arr->data.array->dimension_count) {
-			_handle_error_on_obj(s, SE_RN_DIMENSION_OUT_OF_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer > arr->data.array->dimensions[dcount]) {
-			_handle_error_on_obj(s, SE_RN_ARRAY_OUT_OF_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ARRAY_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(idx) {
 			idx *= val.integer;
@@ -2293,22 +2317,22 @@ void _clear_array(_array_t* arr) {
 
 	if(arr->raw) {
 		switch(arr->type) {
-			case _DT_INT:
-			case _DT_REAL:
-				safe_free(arr->raw);
-				break;
-			case _DT_STRING:
-				strs = (char**)arr->raw;
-				for(ul = 0; ul < arr->count; ++ul) {
-					if(strs[ul]) {
-						safe_free(strs[ul]);
-					}
+		case _DT_INT: /* Fall through */
+		case _DT_REAL:
+			safe_free(arr->raw);
+			break;
+		case _DT_STRING:
+			strs = (char**)arr->raw;
+			for(ul = 0; ul < arr->count; ++ul) {
+				if(strs[ul]) {
+					safe_free(strs[ul]);
 				}
-				safe_free(arr->raw);
-				break;
-			default:
-				assert(0 && "Unsupported");
-				break;
+			}
+			safe_free(arr->raw);
+			break;
+		default:
+			assert(0 && "Unsupported");
+			break;
 		}
 		arr->raw = 0;
 	}
@@ -2380,50 +2404,50 @@ int _destroy_object(void* data, void* extra) {
 		goto _exit;
 	}
 	switch(obj->type) {
-		case _DT_VAR:
-			if(!obj->ref) {
-				var = (_var_t*)(obj->data.variable);
-				safe_free(var->name);
-				assert(var->data->type != _DT_VAR);
-				_destroy_object(var->data, 0);
-				safe_free(var);
-			}
-			safe_free(obj);
-			break;
-		case _DT_STRING:
-			if(!obj->ref) {
-				safe_free(obj->data.string);
-			}
-			safe_free(obj);
-			break;
-		case _DT_FUNC:
-			safe_free(obj->data.func->name);
-			safe_free(obj->data.func);
-			safe_free(obj);
-			break;
-		case _DT_ARRAY:
-			if(!obj->ref) {
-				_destroy_array(obj->data.array);
-			}
-			safe_free(obj);
-			break;
-		case _DT_LABEL:
-			if(!obj->ref) {
-				safe_free(obj->data.label->name);
-				safe_free(obj->data.label);
-			}
-			safe_free(obj);
-			break;
-		case _DT_NIL:
-		case _DT_INT:
-		case _DT_REAL:
-		case _DT_SEP:
-		case _DT_EOS:
-		case _DT_USERTYPE:
-			safe_free(obj);
-			break;
-		default:
-			break;
+	case _DT_VAR:
+		if(!obj->ref) {
+			var = (_var_t*)(obj->data.variable);
+			safe_free(var->name);
+			assert(var->data->type != _DT_VAR);
+			_destroy_object(var->data, 0);
+			safe_free(var);
+		}
+		safe_free(obj);
+		break;
+	case _DT_STRING:
+		if(!obj->ref) {
+			safe_free(obj->data.string);
+		}
+		safe_free(obj);
+		break;
+	case _DT_FUNC:
+		safe_free(obj->data.func->name);
+		safe_free(obj->data.func);
+		safe_free(obj);
+		break;
+	case _DT_ARRAY:
+		if(!obj->ref) {
+			_destroy_array(obj->data.array);
+		}
+		safe_free(obj);
+		break;
+	case _DT_LABEL:
+		if(!obj->ref) {
+			safe_free(obj->data.label->name);
+			safe_free(obj->data.label);
+		}
+		safe_free(obj);
+		break;
+	case _DT_NIL: /* Fall through */
+	case _DT_INT: /* Fall through */
+	case _DT_REAL: /* Fall through */
+	case _DT_SEP: /* Fall through */
+	case _DT_EOS: /* Fall through */
+	case _DT_USERTYPE:
+		safe_free(obj);
+		break;
+	default:
+		break;
 	}
 
 _exit:
@@ -2469,21 +2493,21 @@ int _public_value_to_internal_object(mb_value_t* pbl, _object_t* itn) {
 	assert(pbl && itn);
 
 	switch(pbl->type) {
-		case MB_DT_INT:
-			itn->type = _DT_INT;
-			itn->data.integer = pbl->value.integer;
-			break;
-		case MB_DT_REAL:
-			itn->type = _DT_REAL;
-			itn->data.float_point = pbl->value.float_point;
-			break;
-		case MB_DT_STRING:
-			itn->type = _DT_STRING;
-			itn->data.string = pbl->value.string;
-			break;
-		default:
-			result = MB_FUNC_ERR;
-			break;
+	case MB_DT_INT:
+		itn->type = _DT_INT;
+		itn->data.integer = pbl->value.integer;
+		break;
+	case MB_DT_REAL:
+		itn->type = _DT_REAL;
+		itn->data.float_point = pbl->value.float_point;
+		break;
+	case MB_DT_STRING:
+		itn->type = _DT_STRING;
+		itn->data.string = pbl->value.string;
+		break;
+	default:
+		result = MB_FUNC_ERR;
+		break;
 	}
 
 	return result;
@@ -2496,21 +2520,21 @@ int _internal_object_to_public_value(_object_t* itn, mb_value_t* pbl) {
 	assert(pbl && itn);
 
 	switch(itn->type) {
-		case _DT_INT:
-			pbl->type = MB_DT_INT;
-			pbl->value.integer = itn->data.integer;
-			break;
-		case _DT_REAL:
-			pbl->type = MB_DT_REAL;
-			pbl->value.float_point = itn->data.float_point;
-			break;
-		case _DT_STRING:
-			pbl->type = MB_DT_STRING;
-			pbl->value.string = itn->data.string;
-			break;
-		default:
-			result = MB_FUNC_ERR;
-			break;
+	case _DT_INT:
+		pbl->type = MB_DT_INT;
+		pbl->value.integer = itn->data.integer;
+		break;
+	case _DT_REAL:
+		pbl->type = MB_DT_REAL;
+		pbl->value.float_point = itn->data.float_point;
+		break;
+	case _DT_STRING:
+		pbl->type = MB_DT_STRING;
+		pbl->value.string = itn->data.string;
+		break;
+	default:
+		result = MB_FUNC_ERR;
+		break;
 	}
 
 	return result;
@@ -2528,15 +2552,15 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 
 	obj = (_object_t*)(ast->data);
 	switch(obj->type) {
-		case _DT_FUNC:
-			result = (obj->data.func->pointer)(s, (void**)(&ast));
-			break;
-		case _DT_VAR:
-		case _DT_ARRAY:
-			result = _core_let(s, (void**)(&ast));
-			break;
-		default:
-			break;
+	case _DT_FUNC:
+		result = (obj->data.func->pointer)(s, (void**)(&ast));
+		break;
+	case _DT_VAR: /* Fall through */
+	case _DT_ARRAY:
+		result = _core_let(s, (void**)(&ast));
+		break;
+	default:
+		break;
 	}
 	if(result != MB_FUNC_OK && result != MB_FUNC_SUSPEND && result != MB_SUB_RETURN) {
 		goto _exit;
@@ -2564,7 +2588,7 @@ int _skip_to(mb_interpreter_t* s, _ls_node_t** l, mb_func_t f, _data_e t) {
 	assert(ast && ast->prev);
 	do {
 		if(!ast) {
-			_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(tmp->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(tmp), MB_FUNC_ERR, _exit);
 		}
 		tmp = ast;
 		obj = (_object_t*)(ast->data);
@@ -2591,7 +2615,7 @@ int _skip_struct(mb_interpreter_t* s, _ls_node_t** l, mb_func_t open_func, mb_fu
 	count = 1;
 	do {
 		if(!ast->next) {
-			_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		obj_prev = (_object_t*)(ast->data);
 		ast = ast->next;
@@ -2983,7 +3007,7 @@ int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC)) {
-		_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -3005,7 +3029,7 @@ int mb_attempt_open_bracket(mb_interpreter_t* s, void** l) {
 	ast = ast->next;
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_open_bracket)) {
-		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -3026,7 +3050,7 @@ int mb_attempt_close_bracket(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_close_bracket)) {
-		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -3047,16 +3071,16 @@ int mb_pop_int(mb_interpreter_t* s, void** l, int_t* val) {
 	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			tmp = arg.value.integer;
-			break;
-		case MB_DT_REAL:
-			tmp = (int_t)(arg.value.float_point);
-			break;
-		default:
-			result = MB_FUNC_ERR;
-			goto _exit;
-			break;
+	case MB_DT_INT:
+		tmp = arg.value.integer;
+		break;
+	case MB_DT_REAL:
+		tmp = (int_t)(arg.value.float_point);
+		break;
+	default:
+		result = MB_FUNC_ERR;
+		goto _exit;
+		break;
 	}
 
 	*val = tmp;
@@ -3076,16 +3100,16 @@ int mb_pop_real(mb_interpreter_t* s, void** l, real_t* val) {
 	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			tmp = (real_t)(arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			tmp = arg.value.float_point;
-			break;
-		default:
-			result = MB_FUNC_ERR;
-			goto _exit;
-			break;
+	case MB_DT_INT:
+		tmp = (real_t)(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		tmp = arg.value.float_point;
+		break;
+	default:
+		result = MB_FUNC_ERR;
+		goto _exit;
+		break;
 	}
 
 	*val = tmp;
@@ -3105,13 +3129,13 @@ int mb_pop_string(mb_interpreter_t* s, void** l, char** val) {
 	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
-		case MB_DT_STRING:
-			tmp = arg.value.string;
-			break;
-		default:
-			result = MB_FUNC_ERR;
-			goto _exit;
-			break;
+	case MB_DT_STRING:
+		tmp = arg.value.string;
+		break;
+	default:
+		result = MB_FUNC_ERR;
+		goto _exit;
+		break;
 	}
 
 	*val = tmp;
@@ -3396,6 +3420,17 @@ int mb_set_error_handler(mb_interpreter_t* s, mb_error_handler_t h) {
 	return result;
 }
 
+int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p) {
+	/* Set a print functor to an interpreter instance */
+	int result = MB_FUNC_OK;
+
+	assert(s);
+
+	s->printer = p;
+
+	return result;
+}
+
 /* ========================================================} */
 
 /*
@@ -3424,7 +3459,7 @@ int _core_add(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_connect_strings(l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(+, l);
@@ -3520,7 +3555,7 @@ int _core_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(==, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(==, l);
@@ -3546,7 +3581,7 @@ int _core_less(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(<, l);
@@ -3572,7 +3607,7 @@ int _core_greater(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(>, l);
@@ -3598,7 +3633,7 @@ int _core_less_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(<=, l);
@@ -3624,7 +3659,7 @@ int _core_greater_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(>=, l);
@@ -3650,7 +3685,7 @@ int _core_not_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(!=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, ((_object_t*)(((_tuple3_t*)(*l))->e1)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
 		}
 	} else {
 		_instruct_num_op_num(!=, l);
@@ -3699,15 +3734,15 @@ int _core_not(mb_interpreter_t* s, void** l) {
 	mb_check(mb_pop_value(s, l, &arg));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.integer = (int_t)(!arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			arg.value.integer = (int_t)(!((int_t)arg.value.float_point));
-			arg.type = MB_DT_INT;
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.integer = (int_t)(!arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = (int_t)(!((int_t)arg.value.float_point));
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_int(s, l, arg.value.integer));
 
@@ -3732,7 +3767,7 @@ int _core_let(mb_interpreter_t* s, void** l) {
 		ast = ast->next;
 	}
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type == _DT_VAR) {
@@ -3744,16 +3779,16 @@ int _core_let(mb_interpreter_t* s, void** l) {
 			goto _exit;
 		}
 	} else {
-		_handle_error_on_obj(s, SE_RN_VAR_OR_ARRAY_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_VAR_OR_ARRAY_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_FUNC || strcmp(obj->data.func->name, "=") != 0) {
-		_handle_error_on_obj(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
@@ -3802,7 +3837,7 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_ARRAY) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	arr = (_object_t*)(ast->data);
@@ -3811,25 +3846,25 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	dummy.name = arr->data.array->name;
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
-		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, ((_object_t*)(ast->next->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
 		/* Get an integer value */
 		len = (_object_t*)(ast->data);
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(val.integer <= 0) {
-			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		if(dummy.dimension_count >= _MAX_DIMENSION_COUNT) {
-			_handle_error_on_obj(s, SE_RN_DIMENSION_TOO_MUCH, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_TOO_MUCH, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		dummy.dimensions[dummy.dimension_count++] = val.integer;
 		if(dummy.count) {
@@ -3877,7 +3912,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 	obj = (_object_t*)(ast->data);
 	if(val->data.integer) {
 		if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_then)) {
-			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 		}
 
 		do {
@@ -3907,7 +3942,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
 			if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_else)) {
-				_handle_error_on_obj(s, SE_RN_ELSE_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+				_handle_error_on_obj(s, SE_RN_ELSE_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 			}
 
 			do {
@@ -3978,7 +4013,7 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_VAR) {
-		_handle_error_on_obj(s, SE_RN_LOOP_VAR_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_LOOP_VAR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	var_loop = obj->data.variable;
 
@@ -3990,12 +4025,12 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_to)) {
-		_handle_error_on_obj(s, SE_RN_TO_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_TO_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 
 	ast = ast->next;
 	if(!ast) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	to_node = ast;
 
@@ -4013,7 +4048,7 @@ _to:
 	} else {
 		ast = ast->next;
 		if(!ast) {
-			_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 		}
 
 		result = _calc_expression(s, &ast, &step_val_ptr);
@@ -4208,7 +4243,7 @@ int _core_do(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_EOS)) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -4238,7 +4273,7 @@ _loop_begin:
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_until)) {
-		_handle_error_on_obj(s, SE_RN_UNTIL_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_UNTIL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	ast = ast->next;
 
@@ -4299,14 +4334,14 @@ int _core_goto(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_LABEL) {
-		_handle_error_on_obj(s, SE_RN_JUMP_LABEL_EXPECTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_JUMP_LABEL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
 	}
 
 	label = (_label_t*)(obj->data.label);
 	if(!label->node) {
 		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, label->name);
 		if(!(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_LABEL)) {
-			_handle_error_on_obj(s, SE_RN_LABEL_NOT_EXISTS, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_LABEL_NOT_EXISTS, DON(ast), MB_FUNC_ERR, _exit);
 		}
 		label->node = ((_object_t*)(glbsyminscope->data))->data.label->node;
 	}
@@ -4349,7 +4384,7 @@ int _core_return(mb_interpreter_t* s, void** l) {
 	running = (_running_context_t*)(s->running_context);
 	ast = (_ls_node_t*)_ls_popback(running->sub_stack);
 	if(!ast) {
-		_handle_error_on_obj(s, SE_RN_NO_RETURN_POINT, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_NO_RETURN_POINT, DON(ast), MB_FUNC_ERR, _exit);
 	}
 	*l = ast;
 
@@ -4383,14 +4418,14 @@ int _std_abs(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.integer = (int_t)abs(arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)fabs(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.integer = (int_t)abs(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)fabs(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4411,15 +4446,15 @@ int _std_sgn(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.integer = sgn(arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			arg.value.integer = sgn(arg.value.float_point);
-			arg.type = MB_DT_INT;
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.integer = sgn(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = sgn(arg.value.float_point);
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_int(s, l, arg.value.integer));
 
@@ -4440,15 +4475,15 @@ int _std_sqr(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)sqrt((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)sqrt(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)sqrt((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)sqrt(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4469,15 +4504,15 @@ int _std_floor(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.integer = (int_t)(arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			arg.value.integer = (int_t)(arg.value.float_point);
-			arg.type = MB_DT_INT;
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.integer = (int_t)(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = (int_t)(arg.value.float_point);
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_int(s, l, arg.value.integer));
 
@@ -4498,15 +4533,15 @@ int _std_round(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.integer = (int_t)(arg.value.integer);
-			break;
-		case MB_DT_REAL:
-			arg.value.integer = (int_t)(arg.value.float_point + (real_t)0.5f);
-			arg.type = MB_DT_INT;
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.integer = (int_t)(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = (int_t)(arg.value.float_point + (real_t)0.5f);
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_int(s, l, arg.value.integer));
 
@@ -4519,6 +4554,8 @@ int _std_rnd(mb_interpreter_t* s, void** l) {
 	real_t rnd = (real_t)0.0f;
 
 	assert(s && l);
+
+	mb_check(mb_attempt_func_begin(s, l));
 
 	rnd = (real_t)(((real_t)(rand() % 101)) / 100.0f);
 	mb_check(mb_push_real(s, l, rnd));
@@ -4540,15 +4577,15 @@ int _std_sin(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)sin((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)sin(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)sin((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)sin(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4569,15 +4606,15 @@ int _std_cos(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)cos((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)cos(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)cos((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)cos(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4598,15 +4635,15 @@ int _std_tan(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)tan((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)tan(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)tan((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)tan(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4627,15 +4664,15 @@ int _std_asin(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)asin((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)asin(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)asin((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)asin(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4656,15 +4693,15 @@ int _std_acos(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)acos((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)acos(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)acos((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)acos(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4685,15 +4722,15 @@ int _std_atan(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)atan((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)atan(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)atan((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)atan(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4714,15 +4751,15 @@ int _std_exp(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)exp((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)exp(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)exp((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)exp(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4743,15 +4780,15 @@ int _std_log(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_close_bracket(s, l));
 
 	switch(arg.type) {
-		case MB_DT_INT:
-			arg.value.float_point = (real_t)log((real_t)arg.value.integer);
-			arg.type = MB_DT_REAL;
-			break;
-		case MB_DT_REAL:
-			arg.value.float_point = (real_t)log(arg.value.float_point);
-			break;
-		default:
-			break;
+	case MB_DT_INT:
+		arg.value.float_point = (real_t)log((real_t)arg.value.integer);
+		arg.type = MB_DT_REAL;
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = (real_t)log(arg.value.float_point);
+		break;
+	default:
+		break;
 	}
 	mb_check(mb_push_value(s, l, arg));
 
@@ -4985,85 +5022,66 @@ int _std_print(mb_interpreter_t* s, void** l) {
 
 	_array_t* arr_ptr = 0;
 	unsigned int arr_idx = 0;
-	mb_value_u arr_val;
-	_data_e arr_type;
+
+	_object_t val_obj;
+	_object_t* val_ptr = 0;
 
 	assert(s && l);
+
+	val_ptr = &val_obj;
+	memset(val_ptr, 0, sizeof(_object_t));
 
 	running = (_running_context_t*)(s->running_context);
 	ast = (_ls_node_t*)(*l);
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
 	}
 
 	obj = (_object_t*)(ast->data);
 	do {
 		switch(obj->type) {
-			case _DT_INT:
-				printf("%d", obj->data.integer);
-				break;
-			case _DT_REAL:
-				printf("%f", obj->data.float_point);
-				break;
-			case _DT_STRING:
-				printf("%s", (obj->data.string ? obj->data.string : _NULL_STRING));
-				break;
-			case _DT_VAR:
-				obj = obj->data.variable->data;
-				if(obj->type == _DT_INT) {
-					printf("%d", obj->data.integer);
-				} else if(obj->type == _DT_REAL) {
-					printf("%f", obj->data.float_point);
-				} else if(obj->type == _DT_STRING) {
-					printf("%s", (obj->data.string ? obj->data.string : _NULL_STRING));
-				} else {
-					assert(0 && "Invalid variable type");
+		case _DT_INT: /* Fall through */
+		case _DT_REAL: /* Fall through */
+		case _DT_STRING: /* Fall through */
+		case _DT_VAR: /* Fall through */
+		case _DT_ARRAY: /* Fall through */
+		case _DT_FUNC:
+			result = _calc_expression(s, &ast, &val_ptr);
+			if(result != MB_FUNC_OK) {
+				goto _exit;
+			}
+			if(val_ptr->type == _DT_INT) {
+				_get_printer(s)("%d", val_ptr->data.integer);
+			} else if(val_ptr->type == _DT_REAL) {
+				_get_printer(s)("%f", val_ptr->data.float_point);
+			} else if(val_ptr->type == _DT_STRING) {
+				_get_printer(s)("%s", (val_ptr->data.string ? val_ptr->data.string : _NULL_STRING));
+				if(!val_ptr->ref) {
+					safe_free(val_ptr->data.string);
 				}
-				break;
-			case _DT_ARRAY:
-				arr_ptr = obj->data.array;
-				result = _get_array_index(s, &ast, &arr_idx);
-				if(result != MB_FUNC_OK) {
-					goto _exit;
-				}
-				_get_array_elem(s, arr_ptr, arr_idx, &arr_val, &arr_type);
-				if(arr_type == _DT_REAL) {
-					printf("%f", arr_val.float_point);
-				} else if(arr_type == _DT_STRING) {
-					printf("%s", arr_val.string ? arr_val.string : _NULL_STRING);
-				} else {
-					assert(0 && "Unsupported");
-				}
-				break;
-			case _DT_SEP:
-				if(obj->data.separator == ',') {
-					printf("\n");
-				}
-				break;
-			case _DT_FUNC:
-				result = (obj->data.func->pointer)(s, (void**)(&ast));
-				ast = ast->prev;
-				if(result != MB_FUNC_OK) {
-					goto _exit;
-				}
-				if(running->intermediate_value.type == MB_DT_INT) {
-					printf("%d", running->intermediate_value.value.integer);
-				} else if(running->intermediate_value.type == MB_DT_REAL) {
-					printf("%f", running->intermediate_value.value.float_point);
-				} else if(running->intermediate_value.type == MB_DT_STRING) {
-					printf("%s", (running->intermediate_value.value.string ? running->intermediate_value.value.string : _NULL_STRING));
-					safe_free(running->intermediate_value.value.string);
-				} else {
-					result = MB_FUNC_ERR;
-					goto _exit;
-				}
-				break;
-			default:
-				_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, ((_object_t*)(ast->data)), MB_FUNC_ERR, _exit);
-				break;
+			}
+			break;
+		case _DT_SEP:
+			if(obj->data.separator == ',') {
+				_get_printer(s)("\n");
+			}
+			break;
+		default:
+			_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, DON(ast), MB_FUNC_ERR, _exit);
+			break;
 		}
 
+		if(!ast) {
+			break;
+		}
+		obj = (_object_t*)(ast->data);
+		if(obj->type == _DT_EOS) {
+			break;
+		}
+		if(obj->type == _DT_SEP && obj->data.separator == ':') {
+			break;
+		}
 		ast = ast->next;
 		obj = (_object_t*)(ast->data);
 	} while(ast && !(obj->type == _DT_SEP && obj->data.separator == ':') && (obj->type == _DT_SEP || !_is_expression_terminal(s, obj)));
