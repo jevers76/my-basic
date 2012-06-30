@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 18
+#define _VER_REVISION 19
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0018"
+#define _MB_VERSION_STRING "1.0.0019"
 
 /* Helper */
 #ifndef sgn
@@ -5061,8 +5061,12 @@ int _std_print(mb_interpreter_t* s, void** l) {
 					safe_free(val_ptr->data.string);
 				}
 			}
-			break;
+			/* Fall through */
 		case _DT_SEP:
+			if(!ast) {
+				break;
+			}
+			obj = (_object_t*)(ast->data);
 			if(obj->data.separator == ',') {
 				_get_printer(s)("\n");
 			}
