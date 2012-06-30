@@ -1,4 +1,7 @@
 Jun. 29 2012
+Fixed a newline mistake in PRINT
+
+Jun. 29 2012
 Implemented customizable print functor
 Improved PRINT statement
 Fixed an infinity loop bug in RND function
