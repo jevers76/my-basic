@@ -1,3 +1,10 @@
+Jul. 3 2012
+Modified/added math functions: FLOOR, CEIL, FIX
+Fixed an INPUT type issue
+Changed float number formatting from using "%f" to "%g" in PRINT, thanks to Bruce Kendall for pointing above three issues out
+Refactored the way to load a script file
+Done several small improvements
+
 Jun. 29 2012
 Fixed a newline mistake in PRINT
 
