@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 19
+#define _VER_REVISION 20
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0019"
+#define _MB_VERSION_STRING "1.0.0020"
 
 /* Helper */
 #ifndef sgn
@@ -633,6 +633,8 @@ static int _std_abs(mb_interpreter_t* s, void** l);
 static int _std_sgn(mb_interpreter_t* s, void** l);
 static int _std_sqr(mb_interpreter_t* s, void** l);
 static int _std_floor(mb_interpreter_t* s, void** l);
+static int _std_ceil(mb_interpreter_t* s, void** l);
+static int _std_fix(mb_interpreter_t* s, void** l);
 static int _std_round(mb_interpreter_t* s, void** l);
 static int _std_rnd(mb_interpreter_t* s, void** l);
 static int _std_sin(mb_interpreter_t* s, void** l);
@@ -706,6 +708,8 @@ static const _func_t _std_libs[] = {
 	{ "SGN", _std_sgn },
 	{ "SQR", _std_sqr },
 	{ "FLOOR", _std_floor },
+	{ "CEIL", _std_ceil },
+	{ "FIX", _std_fix },
 	{ "ROUND", _std_round },
 	{ "RND", _std_rnd },
 	{ "SIN", _std_sin },
@@ -1257,6 +1261,7 @@ unsigned int _ht_set_or_insert(_ht_node_t* ht, void* key, void* value) {
 		bucket = _ls_pushback(bucket, value);
 		assert(bucket);
 		bucket->extra = key;
+		++ht->count;
 		++result;
 	}
 
@@ -1274,6 +1279,7 @@ unsigned int _ht_remove(_ht_node_t* ht, void* key) {
 	hash_code = ht->hash(ht, key);
 	bucket = ht->array[hash_code];
 	result = _ls_try_remove(bucket, key, _ls_cmp_extra);
+	ht->count -= result;
 
 	return result;
 }
@@ -1305,6 +1311,7 @@ void _ht_clear(_ht_node_t* ht) {
 	for(ul = 0; ul < ht->array_size; ++ul) {
 		_ls_clear(ht->array[ul]);
 	}
+	ht->count = 0;
 }
 
 void _ht_destroy(_ht_node_t* ht) {
@@ -1630,9 +1637,10 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 	} else {
 		(*val)->type = c->type;
 		if(_is_string(c)) {
-			(*val)->data.string = (char*)malloc(strlen(_extract_string(c)) + 1);
-			(*val)->data.string[strlen(_extract_string(c))] = '\0';
-			memcpy((*val)->data.string, c->data.string, strlen(_extract_string(c)) + 1);
+			size_t _sl = strlen(_extract_string(c));
+			(*val)->data.string = (char*)malloc(_sl + 1);
+			(*val)->data.string[_sl] = '\0';
+			memcpy((*val)->data.string, c->data.string, _sl + 1);
 		} else {
 			(*val)->data = c->data;
 		}
@@ -1837,11 +1845,13 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 		(*obj)->data.float_point = tmp.float_point;
 		safe_free(sym);
 		break;
-	case _DT_STRING:
-		(*obj)->data.string = (char*)malloc(strlen(sym) - 2 + 1);
-		memcpy((*obj)->data.string, sym + sizeof(char), strlen(sym) - 2);
-		(*obj)->data.string[strlen(sym) - 2] = '\0';
-		*delsym = true;
+	case _DT_STRING: {
+			size_t _sl = strlen(sym);
+			(*obj)->data.string = (char*)malloc(_sl - 2 + 1);
+			memcpy((*obj)->data.string, sym + sizeof(char), _sl - 2);
+			(*obj)->data.string[_sl - 2] = '\0';
+			*delsym = true;
+		}
 		break;
 	case _DT_FUNC:
 		tmp.func = (_func_t*)malloc(sizeof(_func_t));
@@ -1951,8 +1961,11 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 	_parsing_context_t* context = 0;
 	_ls_node_t* lclsyminscope = 0;
 	_ls_node_t* glbsyminscope = 0;
+	size_t _sl = 0;
 
-	assert(s && sym && strlen(sym) > 0);
+	assert(s && sym);
+	_sl = strlen(sym);
+	assert(_sl > 0);
 
 	context = (_parsing_context_t*)s->parsing_context;
 
@@ -1973,7 +1986,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		goto _exit;
 	}
 	/* string */
-	if(sym[0] == '"' && sym[strlen(sym) - 1] == '"' && strlen(sym) >= 2) {
+	if(sym[0] == '"' && sym[_sl - 1] == '"' && _sl >= 2) {
 		result = _DT_STRING;
 		goto _exit;
 	}
@@ -1988,7 +2001,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 	}
 	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
 		if(strcmp("DIM", context->last_symbol->data.func->name) == 0) {
-			*value = (void*)(unsigned long)(sym[strlen(sym) - 1] == '$' ? _DT_STRING : _DT_REAL);
+			*value = (void*)(unsigned long)(sym[_sl - 1] == '$' ? _DT_STRING : _DT_REAL);
 
 			result = _DT_ARRAY;
 			goto _exit;
@@ -2004,12 +2017,12 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		goto _exit;
 	}
 	/* _EOS */
-	if(strlen(sym) == 1 && sym[0] == _EOS) {
+	if(_sl == 1 && sym[0] == _EOS) {
 		result = _DT_EOS;
 		goto _exit;
 	}
 	/* separator */
-	if(strlen(sym) == 1 && _is_separator(sym[0])) {
+	if(_sl == 1 && _is_separator(sym[0])) {
 		result = _DT_SEP;
 		goto _exit;
 	}
@@ -2286,8 +2299,9 @@ bool_t _set_array_elem(mb_interpreter_t* s, _array_t* arr, unsigned int index, m
 	} else if(*type == _DT_REAL) {
 		*((real_t*)rawptr) = val->float_point;
 	} else if(*type == _DT_STRING) {
-		*((char**)rawptr) = (char*)malloc(strlen(val->string) + 1);
-		memcpy(*((char**)rawptr), val->string, strlen(val->string) + 1);
+		size_t _sl = strlen(val->string);
+		*((char**)rawptr) = (char*)malloc(_sl + 1);
+		memcpy(*((char**)rawptr), val->string, _sl + 1);
 	} else {
 		assert(0 && "Unsupported");
 	}
@@ -2646,8 +2660,9 @@ int _register_func(mb_interpreter_t* s, const char* n, mb_func_t f, bool_t local
 	scope = (_ht_node_t*)(local ? s->local_func_dict : s->global_func_dict);
 	exists = _ht_find(scope, (void*)n);
 	if(!exists) {
-		name = (char*)malloc(strlen(n) + 1);
-		memcpy(name, n, strlen(n) + 1);
+		size_t _sl = strlen(n);
+		name = (char*)malloc(_sl + 1);
+		memcpy(name, n, _sl + 1);
 		name = _strupr(name);
 		result += _ht_set_or_insert(scope, name, f);
 	} else {
@@ -2669,8 +2684,9 @@ int _remove_func(mb_interpreter_t* s, const char* n, bool_t local) {
 	scope = (_ht_node_t*)(local ? s->local_func_dict : s->global_func_dict);
 	exists = _ht_find(scope, (void*)n);
 	if(exists) {
-		name = (char*)malloc(strlen(n) + 1);
-		memcpy(name, n, strlen(n) + 1);
+		size_t _sl = strlen(n);
+		name = (char*)malloc(_sl + 1);
+		memcpy(name, n, _sl + 1);
 		name = _strupr(name);
 		result += _ht_remove(scope, (void*)name);
 		safe_free(name);
@@ -3235,44 +3251,6 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 	/* Load a script string */
 	int result = MB_FUNC_OK;
 	char ch = 0;
-	int i = 0;
-	int status = 0;
-	_parsing_context_t* context = 0;
-
-	assert(s && s->parsing_context);
-
-	context = (_parsing_context_t*)(s->parsing_context);
-
-	do {
-		ch = l[i];
-		status = _parse_char(s, ch, i, 0, 0);
-		result = status;
-		if(status) {
-			_set_error_pos(s, i, 0, 0);
-			if(s->error_handler) {
-				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
-					s->last_error_pos,
-					s->last_error_row,
-					s->last_error_col,
-					result);
-			}
-			goto _exit;
-		}
-		++i;
-	} while(l[i]);
-	status = _parse_char(s, _EOS, i, 0, 0);
-
-_exit:
-	context->parsing_state = _PS_NORMAL;
-
-	return result;
-}
-
-int mb_load_file(mb_interpreter_t* s, const char* f) {
-	/* Load a script file */
-	int result = MB_FUNC_OK;
-	FILE* fp = 0;
-	char ch = 0;
 	int status = 0;
 	int i = 0;
 	unsigned short row = 1;
@@ -3286,38 +3264,71 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 
 	context = (_parsing_context_t*)(s->parsing_context);
 
-	fp = fopen(f, "rt");
-	if(fp) {
-		do {
-			ch = fgetc(fp);
-			if((ch == '\n' || ch == '\r') && (!wrapped || wrapped == ch)) {
-				wrapped = ch;
-				++row;
-				col = 0;
-			} else {
-				wrapped = '\0';
-				++col;
+	do {
+		ch = l[i];
+		if((ch == '\n' || ch == '\r') && (!wrapped || wrapped == ch)) {
+			wrapped = ch;
+			++row;
+			col = 0;
+		} else {
+			wrapped = '\0';
+			++col;
+		}
+		status = _parse_char(s, ch, i, _row, _col);
+		result = status;
+		if(status) {
+			_set_error_pos(s, i, _row, _col);
+			if(s->error_handler) {
+				(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
+					s->last_error_pos,
+					s->last_error_row,
+					s->last_error_col,
+					result);
 			}
-			status = _parse_char(s, ch, i, _row, _col);
-			result = status;
-			if(status) {
-				_set_error_pos(s, i, _row, _col);
-				if(s->error_handler) {
-					(s->error_handler)(s, s->last_error, (char*)mb_get_error_desc(s->last_error),
-						s->last_error_pos,
-						s->last_error_row,
-						s->last_error_col,
-						result);
-				}
-				goto _exit;
-			}
-			_row = row;
-			_col = col;
-			++i;
-		} while(ch != EOF);
-		status = _parse_char(s, _EOS, i, row, col);
+			goto _exit;
+		}
+		_row = row;
+		_col = col;
+		++i;
+	} while(l[i]);
+	status = _parse_char(s, _EOS, i, row, col);
 
+_exit:
+	context->parsing_state = _PS_NORMAL;
+
+	return result;
+}
+
+int mb_load_file(mb_interpreter_t* s, const char* f) {
+	/* Load a script file */
+	int result = MB_FUNC_OK;
+	FILE* fp = 0;
+	char* buf = 0;
+	long curpos = 0;
+	long l = 0;
+	_parsing_context_t* context = 0;
+
+	assert(s && s->parsing_context);
+
+	context = (_parsing_context_t*)(s->parsing_context);
+
+	fp = fopen(f, "rb");
+	if(fp) {
+		curpos = ftell(fp);
+		fseek(fp, 0L, SEEK_END);
+		l = ftell(fp);
+		fseek(fp, curpos, SEEK_SET);
+		buf = (char*)malloc((size_t)(l + 1));
+		assert(buf);
+		fread(buf, 1, l, fp);
 		fclose(fp);
+		buf[l] = '\0';
+
+		result = mb_load_string(s, buf);
+		free(buf);
+		if(result) {
+			goto _exit;
+		}
 	} else {
 		_set_current_error(s, SE_PS_FILE_OPEN_FAILED);
 
@@ -4491,7 +4502,65 @@ int _std_sqr(mb_interpreter_t* s, void** l) {
 }
 
 int _std_floor(mb_interpreter_t* s, void** l) {
-	/* Get the largest integer not greater than a number */
+	/* Get the greatest integer not greater than a number */
+	int result = MB_FUNC_OK;
+	mb_value_t arg;
+
+	assert(s && l);
+
+	mb_check(mb_attempt_open_bracket(s, l));
+
+	mb_check(mb_pop_value(s, l, &arg));
+
+	mb_check(mb_attempt_close_bracket(s, l));
+
+	switch(arg.type) {
+	case MB_DT_INT:
+		arg.value.integer = (int_t)(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = (int_t)floor(arg.value.float_point);
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
+	}
+	mb_check(mb_push_int(s, l, arg.value.integer));
+
+	return result;
+}
+
+int _std_ceil(mb_interpreter_t* s, void** l) {
+	/* Get the least integer not less than a number */
+	int result = MB_FUNC_OK;
+	mb_value_t arg;
+
+	assert(s && l);
+
+	mb_check(mb_attempt_open_bracket(s, l));
+
+	mb_check(mb_pop_value(s, l, &arg));
+
+	mb_check(mb_attempt_close_bracket(s, l));
+
+	switch(arg.type) {
+	case MB_DT_INT:
+		arg.value.integer = (int_t)(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.integer = (int_t)ceil(arg.value.float_point);
+		arg.type = MB_DT_INT;
+		break;
+	default:
+		break;
+	}
+	mb_check(mb_push_int(s, l, arg.value.integer));
+
+	return result;
+}
+
+int _std_fix(mb_interpreter_t* s, void** l) {
+	/* Get the integer format of a number */
 	int result = MB_FUNC_OK;
 	mb_value_t arg;
 
@@ -5054,7 +5123,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 			if(val_ptr->type == _DT_INT) {
 				_get_printer(s)("%d", val_ptr->data.integer);
 			} else if(val_ptr->type == _DT_REAL) {
-				_get_printer(s)("%f", val_ptr->data.float_point);
+				_get_printer(s)("%g", val_ptr->data.float_point);
 			} else if(val_ptr->type == _DT_STRING) {
 				_get_printer(s)("%s", (val_ptr->data.string ? val_ptr->data.string : _NULL_STRING));
 				if(!val_ptr->ref) {
@@ -5111,19 +5180,17 @@ int _std_input(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 
-	if(obj->data.variable->data->type == _DT_INT) {
+	if(obj->data.variable->data->type == _DT_INT || obj->data.variable->data->type == _DT_REAL) {
 		gets(line);
+		obj->data.variable->data->type = _DT_INT;
 		obj->data.variable->data->data.integer = (int_t)strtol(line, &conv_suc, 0);
 		if(*conv_suc != '\0') {
-			result = MB_FUNC_ERR;
-			goto _exit;
-		}
-	} else if(obj->data.variable->data->type == _DT_REAL) {
-		gets(line);
-		obj->data.variable->data->data.float_point = (real_t)strtod(line, &conv_suc);
-		if(*conv_suc != '\0') {
-			result = MB_FUNC_ERR;
-			goto _exit;
+			obj->data.variable->data->type = _DT_REAL;
+			obj->data.variable->data->data.float_point = (real_t)strtod(line, &conv_suc);
+			if(*conv_suc != '\0') {
+				result = MB_FUNC_ERR;
+				goto _exit;
+			}
 		}
 	} else if(obj->data.variable->data->type == _DT_STRING) {
 		if(obj->data.variable->data->data.string) {
