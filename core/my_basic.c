@@ -56,9 +56,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 20
+#define _VER_REVISION 21
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0020"
+#define _MB_VERSION_STRING "1.0.0021"
 
 /* Helper */
 #ifndef sgn
@@ -553,6 +553,7 @@ static void _destroy_array(_array_t* arr);
 static bool_t _is_string(void* obj);
 static char* _extract_string(_object_t* obj);
 static bool_t _is_internal_object(_object_t* obj);
+static int _dispose_object(_object_t* obj);
 static int _destroy_object(void* data, void* extra);
 static int _compare_numbers(const _object_t* first, const _object_t* second);
 static int _public_value_to_internal_object(mb_value_t* pbl, _object_t* itn);
@@ -2405,15 +2406,13 @@ bool_t _is_internal_object(_object_t* obj) {
 	return result;
 }
 
-int _destroy_object(void* data, void* extra) {
-	/* Destroy a syntax object */
-	int result = _OP_RESULT_NORMAL;
-	_object_t* obj = 0;
+int _dispose_object(_object_t* obj) {
+	/* Dispose a syntax object */
+	int result = 0;
 	_var_t* var = 0;
 
-	assert(data);
+	assert(obj);
 
-	obj = (_object_t*)data;
 	if(_is_internal_object(obj)) {
 		goto _exit;
 	}
@@ -2426,43 +2425,66 @@ int _destroy_object(void* data, void* extra) {
 			_destroy_object(var->data, 0);
 			safe_free(var);
 		}
-		safe_free(obj);
 		break;
 	case _DT_STRING:
 		if(!obj->ref) {
-			safe_free(obj->data.string);
+			if(obj->data.string) {
+				safe_free(obj->data.string);
+			}
 		}
-		safe_free(obj);
 		break;
 	case _DT_FUNC:
 		safe_free(obj->data.func->name);
 		safe_free(obj->data.func);
-		safe_free(obj);
 		break;
 	case _DT_ARRAY:
 		if(!obj->ref) {
 			_destroy_array(obj->data.array);
 		}
-		safe_free(obj);
 		break;
 	case _DT_LABEL:
 		if(!obj->ref) {
 			safe_free(obj->data.label->name);
 			safe_free(obj->data.label);
 		}
-		safe_free(obj);
 		break;
 	case _DT_NIL: /* Fall through */
 	case _DT_INT: /* Fall through */
 	case _DT_REAL: /* Fall through */
 	case _DT_SEP: /* Fall through */
 	case _DT_EOS: /* Fall through */
-	case _DT_USERTYPE:
-		safe_free(obj);
+	case _DT_USERTYPE: /* Do nothing */
 		break;
 	default:
+		assert(0 && "Invalid type");
 		break;
 	}
+	obj->ref = false;
+	obj->type = _DT_NIL;
+	memset(&obj->data, 0, sizeof(obj->data));
+	obj->source_pos = 0;
+	obj->source_row = 0;
+	obj->source_col = 0;
+	++result;
+
+_exit:
+
+	return result;
+}
+
+int _destroy_object(void* data, void* extra) {
+	/* Destroy a syntax object */
+	int result = _OP_RESULT_NORMAL;
+	_object_t* obj = 0;
+	_var_t* var = 0;
+
+	assert(data);
+
+	obj = (_object_t*)data;
+	if(!_dispose_object(obj)) {
+		goto _exit;
+	}
+	safe_free(obj);
 
 _exit:
 	result = _OP_RESULT_DEL_NODE;
@@ -3809,6 +3831,7 @@ int _core_let(mb_interpreter_t* s, void** l) {
 
 	if(var) {
 		if(val->type != _DT_ANY) {
+			_dispose_object(var->data);
 			var->data->type = val->type;
 			var->data->data = val->data;
 			var->data->ref = val->ref;
