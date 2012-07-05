@@ -1,3 +1,6 @@
+Jul. 5 2012
+Implemented LIST, EDIT, LOAD, SAVE commands
+
 Jul. 4 2012
 Fixed some crash bugs
 Fixed some memory leaks
