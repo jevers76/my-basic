@@ -233,7 +233,7 @@ static void _list_program(const char* sn, const char* cn) {
 	lcn = atoi(cn);
 	if(lsn == 0 && lcn == 0) {
 		char* txt = _get_code(c);
-		printf("%s\nList done. %d line(s).\n", txt, c->count);
+		printf("%s\n", txt);
 		free(txt);
 	} else {
 		int i = 0;
@@ -268,7 +268,7 @@ static void _edit_program(const char* no) {
 	}
 	--lno;
 	memset(line, 0, _MAX_LINE_LENGTH);
-	printf("%d]", lno);
+	printf("%d]", lno + 1);
 	gets(line);
 	strcpy(c->lines[lno], line);
 }
@@ -350,6 +350,7 @@ static int _do_line(void) {
 		result = _new_program();
 	} else if(_str_eq(line, "RUN")) {
 		char* txt = _get_code(c);
+		result = mb_reset(&bas, false);
 		result = mb_load_string(bas, txt);
 		free(txt);
 		result = mb_run(bas);
@@ -393,7 +394,7 @@ int main(int argc, char* argv[]) {
 		_show_tip();
 		do {
 			status = _do_line();
-		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status || MB_FUNC_END == status);
+		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status || MB_FUNC_ERR == status || MB_FUNC_END == status);
 	} else if(argc == 2) {
 		if(mb_load_file(bas, argv[1]) == MB_FUNC_OK) {
 			mb_run(bas);
