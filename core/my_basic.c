@@ -2995,6 +2995,8 @@ int mb_reset(mb_interpreter_t** s, bool_t clrf/* = false*/) {
 
 	assert(s);
 
+	(*s)->last_error = SE_NO_ERR;
+
 	running = (_running_context_t*)((*s)->running_context);
 	_ls_clear(running->sub_stack);
 	running->suspent_point = 0;
@@ -3286,7 +3288,7 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 
 	context = (_parsing_context_t*)(s->parsing_context);
 
-	do {
+	while(l[i]) {
 		ch = l[i];
 		if((ch == '\n' || ch == '\r') && (!wrapped || wrapped == ch)) {
 			wrapped = ch;
@@ -3312,7 +3314,7 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 		_row = row;
 		_col = col;
 		++i;
-	} while(l[i]);
+	};
 	status = _parse_char(s, _EOS, i, row, col);
 
 _exit:
