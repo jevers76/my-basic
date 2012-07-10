@@ -5,7 +5,7 @@
 
 e = 50
 
-PRINT "Primes in "; e; ": "; 2; ", "
+PRINT "Primes in ", e, ": ", 2, ", "
 
 FOR n = 3 TO e
     m = 2
@@ -14,5 +14,5 @@ FOR n = 3 TO e
         IF n MOD m = 0 THEN is = 0 ELSE m = m + 1
         IF is = 0 THEN EXIT
     WEND
-    IF is = 1 THEN PRINT n; ", "
+    IF is = 1 THEN PRINT n, ", "
 NEXT n

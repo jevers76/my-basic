@@ -56,13 +56,13 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 22
+#define _VER_REVISION 24
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0022"
+#define _MB_VERSION_STRING "1.0.0024"
 
 /* Helper */
 #ifndef sgn
-#	define sgn(__v) ((__v) ? (__v > 0 ? 1 : -1) : (0))
+#	define sgn(__v) ((__v) ? ((__v) > 0 ? 1 : -1) : (0))
 #endif /* sgn */
 
 #ifndef _countof
@@ -93,10 +93,10 @@ extern "C" {
 #endif /* __APPLE__ */
 
 #ifndef safe_free
-#	define safe_free(__p) { if(__p) { free(__p); __p = 0; } else { assert(0 && "Memory already released"); } }
+#	define safe_free(__p) do { if(__p) { free(__p); __p = 0; } else { assert(0 && "Memory already released"); } } while(0)
 #endif /* safe_free */
 
-#define DON(__o) (__o ? ((_object_t*)(__o->data)) : 0)
+#define DON(__o) ((__o) ? ((_object_t*)((__o)->data)) : 0)
 
 /* Hash table size */
 #define _HT_ARRAY_SIZE_SMALL 193
@@ -167,6 +167,7 @@ static const char* _ERR_DESC[] = {
 	"Label does not exist",
 	"No return point",
 	"Colon expected",
+	"Comma or semicolon expected",
 	"Array identifier expected",
 	"Open bracket expected",
 	"Close bracket expected",
@@ -182,6 +183,7 @@ static const char* _ERR_DESC[] = {
 	"UNTIL statement expected",
 	"Loop variable expected",
 	"Jump label expected",
+	"Invalid identifier usage",
 	/** Extended abort */
 	"Extended abort",
 };
@@ -290,32 +292,33 @@ typedef struct _tuple3_t {
 	void* e3;
 } _tuple3_t;
 
-static const char _PRECEDE_TABLE[18][18] = {
-	/* +    -    *    /    MOD  ^    (    )    =    >    <    >=   <=   ==   <>   AND  OR   NOT */
-	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* + */
-	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* - */
-	{ '>', '>', '>', '>', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* * */
-	{ '>', '>', '>', '>', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* / */
-	{ '>', '>', '<', '<', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* MOD */
-	{ '>', '>', '>', '>', '>', '>', '>', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* ^ */
-	{ '<', '<', '<', '<', '<', '<', '<', '=', ' ', '<', '<', '<', '<', '<', '<', '<', '<', '<' }, /* ( */
-	{ '>', '>', '>', '>', '>', '>', ' ', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* ) */
-	{ '<', '<', '<', '<', '<', '<', '<', ' ', '=', '<', '<', '<', '<', '<', '<', '<', '<', '<' }, /* = */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* > */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* < */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* >= */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* <= */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* == */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>' }, /* <> */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '<' }, /* AND */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '<' }, /* OR */
-	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '>' }  /* NOT */
+static const char _PRECEDE_TABLE[19][19] = {
+	/* +    -    *    /    MOD  ^    (    )    =    >    <    >=   <=   ==   <>   AND  OR   NOT  NEG */
+	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* + */
+	{ '>', '>', '<', '<', '<', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* - */
+	{ '>', '>', '>', '>', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* * */
+	{ '>', '>', '>', '>', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* / */
+	{ '>', '>', '<', '<', '>', '<', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* MOD */
+	{ '>', '>', '>', '>', '>', '>', '>', '<', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* ^ */
+	{ '<', '<', '<', '<', '<', '<', '<', '=', ' ', '<', '<', '<', '<', '<', '<', '<', '<', '<', '<' }, /* ( */
+	{ '>', '>', '>', '>', '>', '>', ' ', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>', '>' }, /* ) */
+	{ '<', '<', '<', '<', '<', '<', '<', ' ', '=', '<', '<', '<', '<', '<', '<', '<', '<', '<', '<' }, /* = */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* > */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* < */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* >= */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* <= */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* == */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', ' ', ' ', ' ', ' ', ' ', ' ', '>', '>', '>', '>' }, /* <> */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '<', '>' }, /* AND */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '<', '>' }, /* OR */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '>', '>', '>', '>' }, /* NOT */
+	{ '<', '<', '<', '<', '<', '<', '<', '>', '>', '<', '<', '<', '<', '<', '<', '<', '<', '<', '=' }  /* NEG */
 };
 
 static _object_t* _exp_assign = 0;
 
 #define _instruct_fun_num_num(__optr, __tuple) \
-	{ \
+	do { \
 		_object_t opndv1; \
 		_object_t opndv2; \
 		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
@@ -343,9 +346,9 @@ static _object_t* _exp_assign = 0;
 			val->type = _DT_INT; \
 			val->data.integer = (int_t)val->data.float_point; \
 		} \
-	}
+	} while(0)
 #define _instruct_num_op_num(__optr, __tuple) \
-	{ \
+	do { \
 		_object_t opndv1; \
 		_object_t opndv2; \
 		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
@@ -378,9 +381,9 @@ static _object_t* _exp_assign = 0;
 			val->type = _DT_INT; \
 			val->data.integer = (int_t)val->data.float_point; \
 		} \
-	}
+	} while(0)
 #define _instruct_int_op_int(__optr, __tuple) \
-	{ \
+	do { \
 		_object_t opndv1; \
 		_object_t opndv2; \
 		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
@@ -404,9 +407,9 @@ static _object_t* _exp_assign = 0;
 				((opndv1.type == _DT_INT ? opndv1.data.integer : (int_t)(opndv1.data.float_point)) __optr \
 				(opndv2.type == _DT_INT ? opndv2.data.integer : (int_t)(opndv2.data.float_point))); \
 		} \
-	}
+	} while(0)
 #define _instruct_connect_strings(__tuple) \
-	{ \
+	do { \
 		char* _str1 = 0; \
 		char* _str2 = 0; \
 		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
@@ -423,9 +426,9 @@ static _object_t* _exp_assign = 0;
 		memset(val->data.string, 0, strlen(_str1) + strlen(_str2) + 1); \
 		strcat(val->data.string, _str1); \
 		strcat(val->data.string, _str2); \
-	}
+	} while(0)
 #define _instruct_compare_strings(__optr, __tuple) \
-	{ \
+	do { \
 		char* _str1 = 0; \
 		char* _str2 = 0; \
 		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
@@ -436,8 +439,7 @@ static _object_t* _exp_assign = 0;
 		_str1 = _extract_string(opnd1); \
 		_str2 = _extract_string(opnd2); \
 		val->data.integer = strcmp(_str1, _str2) __optr 0; \
-	}
-
+	} while(0)
 
 /* ========================================================} */
 
@@ -502,20 +504,20 @@ static int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val
 
 /** Others */
 #define _handle_error(__s, __err, __pos, __row, __col, __ret, __exit) \
-	{ \
+	do { \
 		_set_current_error(__s, __err); \
 		_set_error_pos(__s, __pos, __row, __col); \
 		result = __ret; \
 		goto __exit; \
-	}
+	} while(0)
 #define _handle_error_on_obj(__s, __err, __obj, __ret, __exit) \
-	{ \
+	do { \
 		if(__obj) { \
 			_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit); \
 		} else { \
 			_handle_error(__s, __err, 0, 0, 0, __ret, __exit); \
 		} \
-	}
+	} while(0)
 
 static void _set_current_error(mb_interpreter_t* s, mb_error_e err);
 static const char* _get_error_desc(mb_error_e err);
@@ -583,12 +585,12 @@ static int _close_std_lib(mb_interpreter_t* s);
 /** Macro */
 #ifdef _MSC_VER
 #	if _MSC_VER < 1300
-#		define _do_nothing { static int i = 0; ++i; printf("Unaccessable function called %d times\n", i); }
+#		define _do_nothing do { static int i = 0; ++i; printf("Unaccessable function called %d times\n", i); } while(0)
 #	else
-#		define _do_nothing printf("Unaccessable function: %s\n", __FUNCTION__)
+#		define _do_nothing do { printf("Unaccessable function: %s\n", __FUNCTION__); } while(0)
 #	endif
 #else
-#	define _do_nothing printf("Unaccessable function: %s\n", __FUNCTION__)
+#	define _do_nothing do { printf("Unaccessable function: %s\n", __FUNCTION__); } while(0)
 #endif /* _MSC_VER && _MSC_VER < 1300 */
 
 /** Core lib */
@@ -601,6 +603,7 @@ static int _core_mod(mb_interpreter_t* s, void** l);
 static int _core_pow(mb_interpreter_t* s, void** l);
 static int _core_open_bracket(mb_interpreter_t* s, void** l);
 static int _core_close_bracket(mb_interpreter_t* s, void** l);
+static int _core_neg(mb_interpreter_t* s, void** l);
 static int _core_equal(mb_interpreter_t* s, void** l);
 static int _core_less(mb_interpreter_t* s, void** l);
 static int _core_greater(mb_interpreter_t* s, void** l);
@@ -668,6 +671,7 @@ static const _func_t _core_libs[] = {
 	{ "^", _core_pow },
 	{ "(", _core_open_bracket },
 	{ ")", _core_close_bracket },
+	{ 0, _core_neg },
 
 	{ "=", _core_equal },
 	{ "<", _core_less },
@@ -1416,6 +1420,8 @@ int _get_priority_index(mb_func_t op) {
 		result = 16;
 	} else if(op == _core_not) {
 		result = 17;
+	} else if(op == _core_neg) {
+		result = 18;
 	} else {
 		assert(0 && "Unknown operator");
 	}
@@ -1585,6 +1591,12 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 					}
 					_ls_pushback(opnd, c);
 				} else {
+					if(c->type == _DT_VAR && ast) {
+						_object_t* _err_var = (_object_t*)(ast->data);
+						if(_err_var->type == _DT_FUNC && _err_var->data.func->pointer == _core_open_bracket) {
+							_handle_error_on_obj(s, SE_RN_INVALID_ID_USAGE, DON(ast), MB_FUNC_ERR, _exit);
+						}
+					}
 					_ls_pushback(opnd, c);
 				}
 				if(ast) {
@@ -1725,7 +1737,6 @@ bool_t _is_identifier_char(char c) {
 		(c == '_') ||
 		(c >= '0' && c <= '9') ||
 		(c == '$') ||
-		(c == '-') ||
 		(c == '.');
 }
 
@@ -2009,6 +2020,14 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		}
 	}
 	/* _func_t */
+	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
+		if(strcmp("-", sym) == 0) {
+			*value = (void*)(_core_neg);
+
+			result = _DT_FUNC;
+			goto _exit;
+		}
+	}
 	lclsyminscope = _ht_find((_ht_node_t*)s->local_func_dict, sym);
 	glbsyminscope = _ht_find((_ht_node_t*)s->global_func_dict, sym);
 	if(lclsyminscope || glbsyminscope) {
@@ -2109,6 +2128,9 @@ int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsign
 					result += _cut_symbol(s, pos, row, col);
 					result += _append_char_to_symbol(s, c);
 				} else if(_is_operator_char(c)) {
+					if(c == '-') {
+						result += _cut_symbol(s, pos, row, col);
+					}
 					result += _append_char_to_symbol(s, c);
 				} else {
 					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit);
@@ -2612,7 +2634,7 @@ _exit:
 }
 
 int _skip_to(mb_interpreter_t* s, _ls_node_t** l, mb_func_t f, _data_e t) {
-	/* Skip current execution flow to indicated function */
+	/* Skip current execution flow to a specific function */
 	int result = MB_FUNC_OK;
 	_ls_node_t* ast = 0;
 	_ls_node_t* tmp = 0;
@@ -2677,7 +2699,11 @@ int _register_func(mb_interpreter_t* s, const char* n, mb_func_t f, bool_t local
 	_ls_node_t* exists = 0;
 	char* name = 0;
 
-	assert(s && n);
+	assert(s);
+
+	if(!n) {
+		return result;
+	}
 
 	scope = (_ht_node_t*)(local ? s->local_func_dict : s->global_func_dict);
 	exists = _ht_find(scope, (void*)n);
@@ -2685,7 +2711,7 @@ int _register_func(mb_interpreter_t* s, const char* n, mb_func_t f, bool_t local
 		size_t _sl = strlen(n);
 		name = (char*)malloc(_sl + 1);
 		memcpy(name, n, _sl + 1);
-		name = _strupr(name);
+		_strupr(name);
 		result += _ht_set_or_insert(scope, name, f);
 	} else {
 		_set_current_error(s, SE_CM_FUNC_EXISTS);
@@ -2695,13 +2721,17 @@ int _register_func(mb_interpreter_t* s, const char* n, mb_func_t f, bool_t local
 }
 
 int _remove_func(mb_interpreter_t* s, const char* n, bool_t local) {
-	/* Remove a function to a MY-BASIC environment */
+	/* Remove a function from a MY-BASIC environment */
 	int result = 0;
 	_ht_node_t* scope = 0;
 	_ls_node_t* exists = 0;
 	char* name = 0;
 
-	assert(s && n);
+	assert(s);
+
+	if(!n) {
+		return result;
+	}
 
 	scope = (_ht_node_t*)(local ? s->local_func_dict : s->global_func_dict);
 	exists = _ht_find(scope, (void*)n);
@@ -2709,7 +2739,7 @@ int _remove_func(mb_interpreter_t* s, const char* n, bool_t local) {
 		size_t _sl = strlen(n);
 		name = (char*)malloc(_sl + 1);
 		memcpy(name, n, _sl + 1);
-		name = _strupr(name);
+		_strupr(name);
 		result += _ht_remove(scope, (void*)name);
 		safe_free(name);
 	} else {
@@ -3032,7 +3062,7 @@ int mb_register_func(mb_interpreter_t* s, const char* n, mb_func_t f) {
 }
 
 int mb_remove_func(mb_interpreter_t* s, const char* n) {
-	/* Remove a remote function to a MY-BASIC environment */
+	/* Remove a remote function from a MY-BASIC environment */
 	return _remove_func(s, n, false);
 }
 
@@ -3575,6 +3605,32 @@ int _core_close_bracket(mb_interpreter_t* s, void** l) {
 
 	assert(0 && "Do nothing, impossible here");
 	_do_nothing;
+
+	return result;
+}
+
+int _core_neg(mb_interpreter_t* s, void** l) {
+	/* Operator - (negative) */
+	int result = MB_FUNC_OK;
+	mb_value_t arg;
+
+	assert(s && l);
+
+	mb_check(mb_attempt_func_begin(s, l));
+
+	mb_check(mb_pop_value(s, l, &arg));
+
+	switch(arg.type) {
+	case MB_DT_INT:
+		arg.value.integer = -(arg.value.integer);
+		break;
+	case MB_DT_REAL:
+		arg.value.float_point = -(arg.value.float_point);
+		break;
+	default:
+		break;
+	}
+	mb_check(mb_push_value(s, l, arg));
 
 	return result;
 }
@@ -5063,7 +5119,7 @@ int _std_str(mb_interpreter_t* s, void** l) {
 	if(arg.type == MB_DT_INT) {
 		sprintf(chr, "%d", arg.value.integer);
 	} else if(arg.type == MB_DT_REAL) {
-		sprintf(chr, "%f", arg.value.float_point);
+		sprintf(chr, "%g", arg.value.float_point);
 	} else {
 		result = MB_FUNC_ERR;
 		goto _exit;
@@ -5161,7 +5217,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 				break;
 			}
 			obj = (_object_t*)(ast->data);
-			if(obj->data.separator == ',') {
+			if(obj->data.separator == ';') {
 				_get_printer(s)("\n");
 			}
 			break;
@@ -5180,12 +5236,19 @@ int _std_print(mb_interpreter_t* s, void** l) {
 		if(obj->type == _DT_SEP && obj->data.separator == ':') {
 			break;
 		}
-		ast = ast->next;
-		obj = (_object_t*)(ast->data);
+		if(obj->type == _DT_SEP && (obj->data.separator == ',' || obj->data.separator == ';')) {
+			ast = ast->next;
+			obj = (_object_t*)(ast->data);
+		} else {
+			_handle_error_on_obj(s, SE_RN_COMMA_OR_SEMICOLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		}
 	} while(ast && !(obj->type == _DT_SEP && obj->data.separator == ':') && (obj->type == _DT_SEP || !_is_expression_terminal(s, obj)));
 
 _exit:
 	*l = ast;
+	if(result != MB_FUNC_OK) {
+		_get_printer(s)("\n");
+	}
 
 	return result;
 }
