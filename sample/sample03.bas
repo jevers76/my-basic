@@ -20,4 +20,4 @@ FOR y = 5 TO x STEP 2
 NEXT
 a = a * 4
 
-PRINT "PI = "; a
+PRINT "PI = ", a

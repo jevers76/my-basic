@@ -1,3 +1,9 @@
+Jul. 10 2012
+Implemented KILL command
+Fixed a negative calculation bug
+Added an invalid identifier usage error handling
+Avoided some warnings on gcc
+
 Jul. 5 2012
 Implemented LIST, EDIT, LOAD, SAVE commands
 

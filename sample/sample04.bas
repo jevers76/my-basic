@@ -19,6 +19,6 @@ RETURN
 
 SHOW:
 	FOR i = 0 TO n - 1
-		PRINT arr(i); ", "
+		PRINT arr(i), ", "
 	NEXT
 RETURN

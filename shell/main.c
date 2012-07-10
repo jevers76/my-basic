@@ -32,6 +32,8 @@
 #ifdef _MSC_VER
 #	include <crtdbg.h>
 #	include <conio.h>
+#else
+#	include <unistd.h>
 #endif /* _MSC_VER */
 #include <assert.h>
 #include <stdio.h>
@@ -303,6 +305,14 @@ static void _save_program(const char* path) {
 	free(txt);
 }
 
+static void _kill_program(const char* path) {
+	if(!unlink(path)) {
+		printf("Delete file \"%s\" successfully.\n", path);
+	} else {
+		printf("Delete file \"%s\" failed.\n", path);
+	}
+}
+
 static void _show_tip(void) {
 	printf("MY-BASIC Interpreter Shell - %s\n", mb_ver_string());
 	printf("Copyright (c) 2011 - 2012 Tony's Toy. All Rights Reserved.\n");
@@ -311,19 +321,21 @@ static void _show_tip(void) {
 }
 
 static void _show_help(void) {
-	printf("Usage:\n");
+	printf("Commands:\n");
 	printf("  CLS   - Clear screen\n");
 	printf("  NEW   - Clear current program\n");
 	printf("  RUN   - Run current program\n");
 	printf("  BYE   - Quit interpreter\n");
 	printf("  LIST  - List current program\n");
-	printf("        - Usage: LIST [l [n]], l is start line number, n is line count\n");
+	printf("          Usage: LIST [l [n]], l is start line number, n is line count\n");
 	printf("  EDIT  - Edit a line in current program\n");
-	printf("        - Usage: EDIT n, n is line number\n");
+	printf("          Usage: EDIT n, n is line number\n");
 	printf("  LOAD  - Load a file as current program\n");
-	printf("        - Usage: LOAD *.*\n");
+	printf("          Usage: LOAD *.*\n");
 	printf("  SAVE  - Save current program to a file\n");
-	printf("        - Usage: SAVE *.*\n");
+	printf("          Usage: SAVE *.*\n");
+	printf("  KILL  - Delete a file\n");
+	printf("          Usage: KILL *.*\n");
 }
 
 static int _do_line(void) {
@@ -344,8 +356,8 @@ static int _do_line(void) {
 		/* Do nothing */
 	} else if(_str_eq(line, "HELP")) {
 		_show_help();
-	} else if(_str_eq(line, "BYE")) {
-		result = MB_FUNC_BYE;
+	} else if(_str_eq(line, "CLS")) {
+		_clear_screen();
 	} else if(_str_eq(line, "NEW")) {
 		result = _new_program();
 	} else if(_str_eq(line, "RUN")) {
@@ -355,8 +367,8 @@ static int _do_line(void) {
 		free(txt);
 		result = mb_run(bas);
 		printf("\n");
-	} else if(_str_eq(line, "CLS")) {
-		_clear_screen();
+	} else if(_str_eq(line, "BYE")) {
+		result = MB_FUNC_BYE;
 	} else if(_str_eq(line, "LIST")) {
 		char* sn = line + strlen(line) + 1;
 		char* cn = 0;
@@ -372,6 +384,9 @@ static int _do_line(void) {
 	} else if(_str_eq(line, "SAVE")) {
 		char* path = line + strlen(line) + 1;
 		_save_program(path);
+	} else if(_str_eq(line, "KILL")) {
+		char* path = line + strlen(line) + 1;
+		_kill_program(path);
 	} else {
 		_append_line(c, dup);
 	}
