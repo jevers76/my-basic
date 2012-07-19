@@ -30,7 +30,17 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#pragma pack(1)
+#ifndef MBAPI
+#	define MBAPI
+#endif /* MBAPI */
+
+#ifndef MB_COMPACT_MODE
+#	define MB_COMPACT_MODE
+#endif /* MB_COMPACT_MODE */
+
+#ifdef MB_COMPACT_MODE
+#	pragma pack(1)
+#endif /* MB_COMPACT_MODE */
 
 #ifndef true
 #	define true (!0)
@@ -75,10 +85,6 @@ extern "C" {
 #ifndef mb_check
 #	define mb_check(__r) { int __hr = __r; if(__hr != MB_FUNC_OK) { return __hr; } }
 #endif /* mb_check */
-
-#ifndef MBAPI
-#	define MBAPI
-#endif /* MBAPI */
 
 #ifndef mb_reg_fun
 #	define mb_reg_fun(__s, __f) mb_register_func(__s, #__f, __f)
@@ -206,7 +212,9 @@ MBAPI const char* mb_get_error_desc(mb_error_e err);
 MBAPI int mb_set_error_handler(mb_interpreter_t* s, mb_error_handler_t h);
 MBAPI int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p);
 
-#pragma pack()
+#ifdef MB_COMPACT_MODE
+#	pragma pack()
+#endif /* MB_COMPACT_MODE */
 
 #ifdef __cplusplus
 }
