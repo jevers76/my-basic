@@ -1,3 +1,6 @@
+Jul. 19 2012
+Fixed a crash bug caused by a mistake in calculation priority table, thanks to Bruce Kendall for pointing it out
+
 Jul. 10 2012
 Implemented KILL command
 Fixed a negative calculation bug
