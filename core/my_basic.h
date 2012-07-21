@@ -191,6 +191,7 @@ MBAPI int mb_register_func(mb_interpreter_t* s, const char* n, mb_func_t f);
 MBAPI int mb_remove_func(mb_interpreter_t* s, const char* n);
 
 MBAPI int mb_attempt_func_begin(mb_interpreter_t* s, void** l);
+MBAPI int mb_attempt_func_end(mb_interpreter_t* s, void** l);
 MBAPI int mb_attempt_open_bracket(mb_interpreter_t* s, void** l);
 MBAPI int mb_attempt_close_bracket(mb_interpreter_t* s, void** l);
 MBAPI int mb_pop_int(mb_interpreter_t* s, void** l, int_t* val);
