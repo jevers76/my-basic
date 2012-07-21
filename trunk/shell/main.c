@@ -178,6 +178,7 @@ static int beep(mb_interpreter_t* s, void** l) {
 	assert(s && l);
 
 	mb_check(mb_attempt_func_begin(s, l));
+	mb_check(mb_attempt_func_end(s, l));
 
 	putchar('\a');
 

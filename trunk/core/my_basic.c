@@ -47,7 +47,7 @@ extern "C" {
 #endif /* __cplusplus */
 
 #ifdef MB_COMPACT_MODE
-#	pragma pack()
+#	pragma pack(1)
 #endif /* MB_COMPACT_MODE */
 
 /*
@@ -58,9 +58,14 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 25
+#define _VER_REVISION 26
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0025"
+#define _MB_VERSION_STRING "1.0.0026"
+
+/* Uncomment this line to use a comma to PRINT a new line as compatibility */
+/*#define _COMMA_AS_NEWLINE*/
+
+#define _NO_EAT_COMMA 2
 
 /* Helper */
 #ifndef sgn
@@ -192,7 +197,7 @@ static const char* _ERR_DESC[] = {
 
 /* Data type */
 #define _EOS '\n'
-#define _NULL_STRING "(none)"
+#define _NULL_STRING "(empty)"
 
 typedef enum _data_e {
 	_DT_NIL = -1,
@@ -285,6 +290,7 @@ typedef struct _running_context_t {
 	_ls_node_t* sub_stack;
 	_var_t* next_loop_var;
 	mb_value_t intermediate_value;
+	int_t no_eat_comma_mark;
 } _running_context_t;
 
 /* Expression processing */
@@ -2022,7 +2028,8 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		}
 	}
 	/* _func_t */
-	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
+	if(context->last_symbol && (context->last_symbol->type == _DT_FUNC ||
+		context->last_symbol->type == _DT_SEP)) {
 		if(strcmp("-", sym) == 0) {
 			*value = (void*)(_core_neg);
 
@@ -3033,6 +3040,7 @@ int mb_reset(mb_interpreter_t** s, bool_t clrf/* = false*/) {
 	_ls_clear(running->sub_stack);
 	running->suspent_point = 0;
 	running->next_loop_var = 0;
+	running->no_eat_comma_mark = 0;
 	memset(&(running->intermediate_value), 0, sizeof(mb_value_t));
 
 	context = (_parsing_context_t*)((*s)->parsing_context);
@@ -3073,6 +3081,7 @@ int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	int result = MB_FUNC_OK;
 	_ls_node_t* ast = 0;
 	_object_t* obj = 0;
+	_running_context_t* running = 0;
 
 	assert(s && l);
 
@@ -3083,8 +3092,24 @@ int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	}
 	ast = ast->next;
 
+	running = (_running_context_t*)(s->running_context);
+	++running->no_eat_comma_mark;
+
 _exit:
 	*l = ast;
+
+	return result;
+}
+
+int mb_attempt_func_end(mb_interpreter_t* s, void** l) {
+	/* Try attempting to end a function */
+	int result = MB_FUNC_OK;
+	_running_context_t* running = 0;
+
+	assert(s && l);
+
+	running = (_running_context_t*)(s->running_context);
+	--running->no_eat_comma_mark;
 
 	return result;
 }
@@ -3222,8 +3247,11 @@ int mb_pop_value(mb_interpreter_t* s, void** l, mb_value_t* val) {
 	_ls_node_t* ast = 0;
 	_object_t val_obj;
 	_object_t* val_ptr = 0;
+	_running_context_t* running = 0;
 
 	assert(s && l && val);
+
+	running = (_running_context_t*)(s->running_context);
 
 	val_ptr = &val_obj;
 
@@ -3233,8 +3261,10 @@ int mb_pop_value(mb_interpreter_t* s, void** l, mb_value_t* val) {
 		goto _exit;
 	}
 
-	if(ast && ((_object_t*)(ast->data))->type == _DT_SEP && ((_object_t*)(ast->data))->data.separator == ',') {
-		ast = ast->next;
+	if(running->no_eat_comma_mark < _NO_EAT_COMMA) {
+		if(ast && ((_object_t*)(ast->data))->type == _DT_SEP && ((_object_t*)(ast->data))->data.separator == ',') {
+			ast = ast->next;
+		}
 	}
 
 	result = _internal_object_to_public_value(val_ptr, val);
@@ -3410,6 +3440,7 @@ int mb_run(mb_interpreter_t* s) {
 		ast = ast->next;
 		running->suspent_point = 0;
 	} else {
+		assert(!running->no_eat_comma_mark);
 		ast = (_ls_node_t*)(s->ast);
 		ast = ast->next;
 		if(!ast) {
@@ -3622,6 +3653,8 @@ int _core_neg(mb_interpreter_t* s, void** l) {
 
 	mb_check(mb_pop_value(s, l, &arg));
 
+	mb_check(mb_attempt_func_end(s, l));
+
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = -(arg.value.integer);
@@ -3825,6 +3858,8 @@ int _core_not(mb_interpreter_t* s, void** l) {
 	mb_check(mb_attempt_func_begin(s, l));
 
 	mb_check(mb_pop_value(s, l, &arg));
+
+	mb_check(mb_attempt_func_end(s, l));
 
 	switch(arg.type) {
 	case MB_DT_INT:
@@ -4708,6 +4743,7 @@ int _std_rnd(mb_interpreter_t* s, void** l) {
 	assert(s && l);
 
 	mb_check(mb_attempt_func_begin(s, l));
+	mb_check(mb_attempt_func_end(s, l));
 
 	rnd = (real_t)(((real_t)(rand() % 101)) / 100.0f);
 	mb_check(mb_push_real(s, l, rnd));
@@ -5184,6 +5220,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 	memset(val_ptr, 0, sizeof(_object_t));
 
 	running = (_running_context_t*)(s->running_context);
+	++running->no_eat_comma_mark;
 	ast = (_ls_node_t*)(*l);
 	ast = ast->next;
 	if(!ast || !ast->data) {
@@ -5200,9 +5237,6 @@ int _std_print(mb_interpreter_t* s, void** l) {
 		case _DT_ARRAY: /* Fall through */
 		case _DT_FUNC:
 			result = _calc_expression(s, &ast, &val_ptr);
-			if(result != MB_FUNC_OK) {
-				goto _exit;
-			}
 			if(val_ptr->type == _DT_INT) {
 				_get_printer(s)("%d", val_ptr->data.integer);
 			} else if(val_ptr->type == _DT_REAL) {
@@ -5213,13 +5247,20 @@ int _std_print(mb_interpreter_t* s, void** l) {
 					safe_free(val_ptr->data.string);
 				}
 			}
+			if(result != MB_FUNC_OK) {
+				goto _exit;
+			}
 			/* Fall through */
 		case _DT_SEP:
 			if(!ast) {
 				break;
 			}
 			obj = (_object_t*)(ast->data);
+#ifdef _COMMA_AS_NEWLINE
+			if(obj->data.separator == ',') {
+#else /* _COMMA_AS_NEWLINE */
 			if(obj->data.separator == ';') {
+#endif /* _COMMA_AS_NEWLINE */
 				_get_printer(s)("\n");
 			}
 			break;
@@ -5247,6 +5288,8 @@ int _std_print(mb_interpreter_t* s, void** l) {
 	} while(ast && !(obj->type == _DT_SEP && obj->data.separator == ':') && (obj->type == _DT_SEP || !_is_expression_terminal(s, obj)));
 
 _exit:
+	--running->no_eat_comma_mark;
+
 	*l = ast;
 	if(result != MB_FUNC_OK) {
 		_get_printer(s)("\n");
@@ -5266,6 +5309,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 	assert(s && l);
 
 	mb_check(mb_attempt_func_begin(s, l));
+	mb_check(mb_attempt_func_end(s, l));
 
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
