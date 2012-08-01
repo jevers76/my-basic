@@ -18,6 +18,6 @@ Advanced syntax:
   * YIELD statement.
 
 Functional programming:
-  * Lambda.
+  * [http://en.wikipedia.org/wiki/Lambda_%28programming%29 Lambda].
   * Closure.
   * Coroutine.
