@@ -68,6 +68,14 @@ extern "C" {
 #	endif /* _strcmpi */
 #endif /* _MSC_VER */
 
+#ifndef mb_assert
+#	define mb_assert(__a) do { ((void)(__a)); assert(__a); } while(0)
+#endif /* mb_assert */
+
+#ifndef mb_unrefvar
+#	define mb_unrefvar(__v) ((void)(__v))
+#endif /* mb_unrefvar */
+
 #ifndef MB_CODES
 #	define MB_CODES
 #	define MB_FUNC_OK 0
