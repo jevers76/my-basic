@@ -1,7 +1,12 @@
+Aug. 3 2012
+Implemented memory occupation statistics
+Improved compatibility on 64bit systems
+Fixed some warnings under a stricter mode
+
 Jul. 21 2012
-Added a compatibility macro for PRINT a newline.
-Added an mb_attempt_func_end C API.
-Fixed a unary minus symbol parsing bug.
+Added a compatibility macro for PRINT a newline
+Added an mb_attempt_func_end C API
+Fixed a unary minus symbol parsing bug
 
 Jul. 19 2012
 Fixed a crash bug caused by a mistake in calculation priority table, thanks to Bruce Kendall for pointing it out

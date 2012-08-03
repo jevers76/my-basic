@@ -32,7 +32,7 @@
 #ifdef _MSC_VER
 #	include <crtdbg.h>
 #	include <conio.h>
-#else
+#else /* _MSC_VER */
 #	include <unistd.h>
 #endif /* _MSC_VER */
 #include <assert.h>
@@ -42,6 +42,7 @@
 #include "../core/my_basic.h"
 
 #ifdef _MSC_VER
+#	pragma warning(disable : 4127)
 #	pragma warning(disable : 4996)
 #endif /* _MSC_VER */
 
@@ -71,7 +72,7 @@ static _code_line_t* _create_code(void) {
 
 static void _destroy_code(_code_line_t* code) {
 	int i = 0;
-	assert(code);
+	mb_assert(code);
 	for(i = 0; i < code->count; ++i) {
 		free(code->lines[i]);
 	}
@@ -81,7 +82,7 @@ static void _destroy_code(_code_line_t* code) {
 
 static void _clear_code(_code_line_t* code) {
 	int i = 0;
-	assert(code);
+	mb_assert(code);
 	for(i = 0; i < code->count; ++i) {
 		free(code->lines[i]);
 	}
@@ -89,7 +90,7 @@ static void _clear_code(_code_line_t* code) {
 }
 
 static void _append_line(_code_line_t* code, char* txt) {
-	assert(code && txt);
+	mb_assert(code && txt);
 	if(code->count + 1 == code->size) {
 		code->size += _LINE_INC_STEP;
 		code->lines = (char**)realloc(code->lines, sizeof(char*) * code->size);
@@ -100,7 +101,7 @@ static void _append_line(_code_line_t* code, char* txt) {
 static char* _get_code(_code_line_t* code) {
 	char* result = 0;
 	int i = 0;
-	assert(code);
+	mb_assert(code);
 	result = (char*)malloc((_MAX_LINE_LENGTH + 2) * code->count + 1);
 	result[0] = '\0';
 	for(i = 0; i < code->count; ++i) {
@@ -116,7 +117,7 @@ static char* _get_code(_code_line_t* code) {
 static void _set_code(_code_line_t* code, char* txt) {
 	char* cursor = 0;
 	char _c = '\0';
-	assert(code);
+	mb_assert(code);
 	if(!txt) {
 		return;
 	}
@@ -141,7 +142,7 @@ static char* _load_file(const char* path) {
 	char* result = 0;
 	long curpos = 0;
 	long l = 0;
-	assert(path);
+	mb_assert(path);
 	fp = fopen(path, "rb");
 	if(fp) {
 		curpos = ftell(fp);
@@ -149,7 +150,7 @@ static char* _load_file(const char* path) {
 		l = ftell(fp);
 		fseek(fp, curpos, SEEK_SET);
 		result = (char*)malloc((size_t)(l + 1));
-		assert(result);
+		mb_assert(result);
 		fread(result, 1, l, fp);
 		fclose(fp);
 		result[l] = '\0';
@@ -160,7 +161,7 @@ static char* _load_file(const char* path) {
 
 static int _save_file(const char* path, const char* txt) {
 	FILE* fp = 0;
-	assert(path && txt);
+	mb_assert(path && txt);
 	fp = fopen(path, "wb");
 	if(fp) {
 		fwrite(txt, sizeof(char), strlen(txt), fp);
@@ -175,7 +176,7 @@ static int _save_file(const char* path, const char* txt) {
 static int beep(mb_interpreter_t* s, void** l) {
 	int result = MB_FUNC_OK;
 
-	assert(s && l);
+	mb_assert(s && l);
 
 	mb_check(mb_attempt_func_begin(s, l));
 	mb_check(mb_attempt_func_end(s, l));
@@ -186,6 +187,7 @@ static int beep(mb_interpreter_t* s, void** l) {
 }
 
 static void _on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p, unsigned short row, unsigned short col, int abort_code) {
+	mb_unrefvar(s);
 	if(SE_NO_ERR != e) {
 		printf("Error :\n    [POS] %d, [ROW] %d, [COL] %d,\n    [CODE] %d, [MESSAGE] %s, [ABORT CODE] %d\n", p, row, col, e, m, abort_code);
 	}
@@ -210,17 +212,17 @@ static void _on_exit(void) {
 	_destroy_code(c);
 	c = 0;
 
-#ifdef _MSC_VER
+#if defined _MSC_VER && !defined _WIN64
 	if(0 != _CrtDumpMemoryLeaks()) { _asm { int 3 } }
-#endif /* _MSC_VER */
+#endif /* _MSC_VER && !_WIN64 */
 }
 
 static void _clear_screen(void) {
 #ifdef _MSC_VER
 	system("cls");
-#else
+#else /* _MSC_VER */
 	system("clear");
-#endif
+#endif /* _MSC_VER */
 }
 
 static int _new_program(void) {
@@ -231,7 +233,7 @@ static int _new_program(void) {
 static void _list_program(const char* sn, const char* cn) {
 	long lsn = 0;
 	long lcn = 0;
-	assert(sn && cn);
+	mb_assert(sn && cn);
 	lsn = atoi(sn);
 	lcn = atoi(cn);
 	if(lsn == 0 && lcn == 0) {
@@ -263,7 +265,7 @@ static void _list_program(const char* sn, const char* cn) {
 static void _edit_program(const char* no) {
 	char line[_MAX_LINE_LENGTH];
 	long lno = 0;
-	assert(no);
+	mb_assert(no);
 	lno = atoi(no);
 	if(lno < 1 || lno > c->count) {
 		printf("Line number %d out of bound.\n", lno);
@@ -344,7 +346,7 @@ static int _do_line(void) {
 	char line[_MAX_LINE_LENGTH];
 	char dup[_MAX_LINE_LENGTH];
 
-	assert(bas);
+	mb_assert(bas);
 
 	memset(line, 0, _MAX_LINE_LENGTH);
 	printf("]");
@@ -398,9 +400,9 @@ static int _do_line(void) {
 int main(int argc, char* argv[]) {
 	int status = 0;
 
-#ifdef _MSC_VER
+#if defined _MSC_VER && !defined _WIN64
 	_CrtSetBreakAlloc(0);
-#endif /* _MSC_VER */
+#endif /* _MSC_VER && !_WIN64 */
 
 	atexit(_on_exit);
 
