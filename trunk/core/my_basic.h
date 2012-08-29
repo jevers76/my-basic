@@ -80,9 +80,10 @@ extern "C" {
 #	define MB_CODES
 #	define MB_FUNC_OK 0
 #	define MB_FUNC_BYE 1001
-#	define MB_FUNC_ERR 1002
-#	define MB_FUNC_END 1003
-#	define MB_FUNC_SUSPEND 1004
+#	define MB_FUNC_WARNING 1002
+#	define MB_FUNC_ERR 1003
+#	define MB_FUNC_END 1004
+#	define MB_FUNC_SUSPEND 1005
 #	define MB_PARSING_ERR 3001
 #	define MB_LOOP_BREAK 5001
 #	define MB_LOOP_CONTINUE 5002

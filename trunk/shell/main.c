@@ -51,6 +51,8 @@
 
 #define _LINE_INC_STEP 16
 
+#define _NO_END(s) (MB_FUNC_OK == s || MB_FUNC_SUSPEND == s || MB_FUNC_WARNING == s || MB_FUNC_ERR == s || MB_FUNC_END == s)
+
 typedef struct _code_line_t {
 	char** lines;
 	int count;
@@ -412,7 +414,7 @@ int main(int argc, char* argv[]) {
 		_show_tip();
 		do {
 			status = _do_line();
-		} while(MB_FUNC_OK == status || MB_FUNC_SUSPEND == status || MB_FUNC_ERR == status || MB_FUNC_END == status);
+		} while(_NO_END(status));
 	} else if(argc == 2) {
 		if(mb_load_file(bas, argv[1]) == MB_FUNC_OK) {
 			mb_run(bas);
