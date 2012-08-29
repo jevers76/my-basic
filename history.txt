@@ -1,3 +1,8 @@
+Aug. 29 2012
+Modified an odd string comparison behavior, thanks to Matthias Nott for testing it out
+Added a warning system, disabled warning as default
+Improved compatibility with GCC
+
 Aug. 3 2012
 Implemented memory occupation statistics
 Improved compatibility on 64bit systems

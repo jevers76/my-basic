@@ -30,16 +30,18 @@
 #endif /* _MSC_VER */
 
 #ifdef _MSC_VER
-#	include <malloc.h>
 #	include <conio.h>
+#	include <malloc.h>
+#else /* _MSC_VER */
+#	include <stdint.h>
 #endif /* _MSC_VER */
 #include <memory.h>
 #include <assert.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "my_basic.h"
 
 #ifdef __cplusplus
@@ -64,9 +66,12 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 27
+#define _VER_REVISION 29
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0027"
+#define _MB_VERSION_STRING "1.0.0029"
+
+/* Uncomment this line to treat warnings as error */
+/*#define _WARING_AS_ERROR*/
 
 /* Uncomment this line to use a comma to PRINT a new line as compatibility */
 /*#define _COMMA_AS_NEWLINE*/
@@ -94,7 +99,7 @@ extern "C" {
 #	define toupper(__c) ((islower(__c)) ? ((__c) - 'a' + 'A') : (__c))
 #endif /* toupper */
 
-#ifdef __APPLE__
+#ifndef _MSC_VER
 #	ifndef _strupr
 		static char* _strupr(char* __s) {
 			char* t = __s;
@@ -107,7 +112,7 @@ extern "C" {
 			return t;
 		}
 #	endif /* _strupr */
-#endif /* __APPLE__ */
+#endif /* _MSC_VER */
 
 #define DON(__o) ((__o) ? ((_object_t*)((__o)->data)) : 0)
 
@@ -455,6 +460,13 @@ static _object_t* _exp_assign = 0;
 		val->data.integer = strcmp(_str1, _str2) __optr 0; \
 	} while(0)
 
+#define _set_tuple3_result(__l, __r) \
+	do { \
+		_object_t* val = (_object_t*)(((_tuple3_t*)(*(__l)))->e3); \
+		val->type = _DT_INT; \
+		val->data.integer = __r; \
+	} while(0)
+
 /* ========================================================} */
 
 /*
@@ -529,24 +541,37 @@ static void mb_free(void* p);
 static bool_t _is_operator(mb_func_t op);
 static char _get_priority(mb_func_t op1, mb_func_t op2);
 static int _get_priority_index(mb_func_t op);
-static _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opnd1, _object_t* opnd2);
+static _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opnd1, _object_t* opnd2, int* status);
 static bool_t _is_expression_terminal(mb_interpreter_t* s, _object_t* obj);
 static int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val);
+static bool_t _is_print_terminal(mb_interpreter_t* s, _object_t* obj);
 
 /** Others */
-#define _handle_error(__s, __err, __pos, __row, __col, __ret, __exit) \
-	do { \
-		_set_current_error(__s, __err); \
-		_set_error_pos(__s, __pos, __row, __col); \
-		result = __ret; \
-		goto __exit; \
-	} while(0)
-#define _handle_error_on_obj(__s, __err, __obj, __ret, __exit) \
+#ifdef _WARING_AS_ERROR
+#	define _handle_error(__s, __err, __pos, __row, __col, __ret, __exit, __result) \
+		do { \
+			_set_current_error(__s, __err); \
+			_set_error_pos(__s, __pos, __row, __col); \
+			__result = __ret; \
+			goto __exit; \
+		} while(0)
+#else /* _WARING_AS_ERROR */
+#	define _handle_error(__s, __err, __pos, __row, __col, __ret, __exit, __result) \
+		do { \
+			_set_current_error(__s, __err); \
+			_set_error_pos(__s, __pos, __row, __col); \
+			if(__ret != MB_FUNC_WARNING) { \
+				__result = __ret; \
+			} \
+			goto __exit; \
+		} while(0)
+#endif /* _WARING_AS_ERROR */
+#define _handle_error_on_obj(__s, __err, __obj, __ret, __exit, __result) \
 	do { \
 		if(__obj) { \
-			_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit); \
+			_handle_error(__s, __err, (__obj)->source_pos, (__obj)->source_row, (__obj)->source_col, __ret, __exit, __result); \
 		} else { \
-			_handle_error(__s, __err, 0, 0, 0, __ret, __exit); \
+			_handle_error(__s, __err, 0, 0, 0, __ret, __exit, __result); \
 		} \
 	} while(0)
 
@@ -1525,12 +1550,12 @@ int _get_priority_index(mb_func_t op) {
 	return result;
 }
 
-_object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opnd1, _object_t* opnd2) {
+_object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opnd1, _object_t* opnd2, int* status) {
 	/* Operate two operands */
 	_object_t* result = 0;
 	_tuple3_t tp;
 	_tuple3_t* tpptr = 0;
-	int status = 0;
+	int _status = 0;
 
 	mb_assert(s && optr && opnd1);
 	mb_assert(optr->type == _DT_FUNC);
@@ -1544,10 +1569,15 @@ _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opn
 	tp.e3 = result;
 	tpptr = &tp;
 
-	status = (optr->data.func->pointer)(s, (void**)(&tpptr));
-	if(status != MB_FUNC_OK) {
-		safe_free(result);
-		result = 0;
+	_status = (optr->data.func->pointer)(s, (void**)(&tpptr));
+	if(status) {
+		*status = _status;
+	}
+	if(_status != MB_FUNC_OK) {
+		if(_status != MB_FUNC_WARNING) {
+			safe_free(result);
+			result = 0;
+		}
 		_set_current_error(s, SE_RN_OPERATION_FAILED);
 		_set_error_pos(s, optr->source_pos, optr->source_row, optr->source_col);
 	}
@@ -1690,7 +1720,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 					if(c->type == _DT_VAR && ast) {
 						_object_t* _err_var = (_object_t*)(ast->data);
 						if(_err_var->type == _DT_FUNC && _err_var->data.func->pointer == _core_open_bracket) {
-							_handle_error_on_obj(s, SE_RN_INVALID_ID_USAGE, DON(ast), MB_FUNC_ERR, _exit);
+							_handle_error_on_obj(s, SE_RN_INVALID_ID_USAGE, DON(ast), MB_FUNC_ERR, _exit, result);
 						}
 					}
 					_ls_pushback(opnd, c);
@@ -1719,7 +1749,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				theta = (_object_t*)_ls_popback(optr);
 				b = (_object_t*)_ls_popback(opnd);
 				a = (_object_t*)_ls_popback(opnd);
-				r = _operate_operand(s, theta, a, b);
+				r = _operate_operand(s, theta, a, b, &result);
 				mb_assert(r);
 				_ls_pushback(opnd, r);
 				_ls_pushback(garbage, r);
@@ -1767,6 +1797,22 @@ _exit:
 	_ls_destroy(optr);
 	_ls_destroy(opnd);
 	*l = ast;
+
+	return result;
+}
+
+bool_t _is_print_terminal(mb_interpreter_t* s, _object_t* obj) {
+	/* Determine whether an object is a PRINT termination */
+	bool_t result = false;
+
+	mb_assert(s && obj);
+
+	result =
+		(obj->type == _DT_EOS) ||
+		(obj->type == _DT_SEP && obj->data.separator == ':') ||
+		(obj->type == _DT_FUNC &&
+			(obj->data.func->pointer == _core_else)
+		);
 
 	return result;
 }
@@ -2023,7 +2069,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 				_ls_node_t* _n = _ls_back(l);
 				*delsym = true;
 
-				_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(_n), MB_PARSING_ERR, _exit);
+				_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(_n), MB_PARSING_ERR, _exit, result);
 			} else {
 				tmp.label = (_label_t*)mb_malloc(sizeof(_label_t));
 				memset(tmp.label, 0, sizeof(_label_t));
@@ -2217,7 +2263,7 @@ int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsign
 					result += _cut_symbol(s, pos, row, col);
 					result += _append_char_to_symbol(s, c);
 				} else {
-					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit);
+					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit, result);
 				}
 			} else if(context->symbol_state == _SS_OPERATOR) {
 				if(_is_identifier_char(c)) {
@@ -2230,7 +2276,7 @@ int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsign
 					}
 					result += _append_char_to_symbol(s, c);
 				} else {
-					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit);
+					_handle_error(s, SE_PS_INVALID_CHAR, pos, row, col, MB_FUNC_ERR, _exit, result);
 				}
 			} else {
 				mb_assert(0 && "Impossible here");
@@ -2321,19 +2367,19 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast || ((_object_t*)(ast->data))->type != _DT_ARRAY) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	arr = (_object_t*)(ast->data);
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
 		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED,
 			(ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0,
-			MB_FUNC_ERR, _exit);
+			MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
@@ -2344,16 +2390,16 @@ int _get_array_index(mb_interpreter_t* s, _ls_node_t** l, unsigned int* index) {
 		}
 		len = subscript_ptr;
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(val.integer < 0) {
-			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(dcount + 1 > arr->data.array->dimension_count) {
-			_handle_error_on_obj(s, SE_RN_DIMENSION_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(val.integer > arr->data.array->dimensions[dcount]) {
-			_handle_error_on_obj(s, SE_RN_ARRAY_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ARRAY_OUT_OF_BOUND, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(idx) {
 			idx *= (unsigned int)val.integer;
@@ -2743,7 +2789,7 @@ int _skip_to(mb_interpreter_t* s, _ls_node_t** l, mb_func_t f, _data_e t) {
 	mb_assert(ast && ast->prev);
 	do {
 		if(!ast) {
-			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(tmp), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(tmp), MB_FUNC_ERR, _exit, result);
 		}
 		tmp = ast;
 		obj = (_object_t*)(ast->data);
@@ -2770,7 +2816,7 @@ int _skip_struct(mb_interpreter_t* s, _ls_node_t** l, mb_func_t open_func, mb_fu
 	count = 1;
 	do {
 		if(!ast->next) {
-			_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		obj_prev = (_object_t*)(ast->data);
 		ast = ast->next;
@@ -3176,7 +3222,7 @@ int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC)) {
-		_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_STRUCTURE_NOT_COMPLETED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 
@@ -3214,7 +3260,7 @@ int mb_attempt_open_bracket(mb_interpreter_t* s, void** l) {
 	ast = ast->next;
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_open_bracket)) {
-		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 
@@ -3235,7 +3281,7 @@ int mb_attempt_close_bracket(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_close_bracket)) {
-		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 
@@ -3647,7 +3693,7 @@ int _core_add(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_connect_strings(l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(+, l);
@@ -3775,7 +3821,8 @@ int _core_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(==, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			_set_tuple3_result(l, 0);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(==, l);
@@ -3801,7 +3848,12 @@ int _core_less(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			if(_is_string(((_tuple3_t*)(*l))->e1)) {
+				_set_tuple3_result(l, 0);
+			} else {
+				_set_tuple3_result(l, 1);
+			}
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(<, l);
@@ -3827,7 +3879,12 @@ int _core_greater(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			if(_is_string(((_tuple3_t*)(*l))->e1)) {
+				_set_tuple3_result(l, 1);
+			} else {
+				_set_tuple3_result(l, 0);
+			}
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(>, l);
@@ -3853,7 +3910,12 @@ int _core_less_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(<=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			if(_is_string(((_tuple3_t*)(*l))->e1)) {
+				_set_tuple3_result(l, 0);
+			} else {
+				_set_tuple3_result(l, 1);
+			}
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(<=, l);
@@ -3879,7 +3941,12 @@ int _core_greater_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(>=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			if(_is_string(((_tuple3_t*)(*l))->e1)) {
+				_set_tuple3_result(l, 1);
+			} else {
+				_set_tuple3_result(l, 0);
+			}
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(>=, l);
@@ -3905,7 +3972,8 @@ int _core_not_equal(mb_interpreter_t* s, void** l) {
 		if(_is_string(((_tuple3_t*)(*l))->e1) && _is_string(((_tuple3_t*)(*l))->e2)) {
 			_instruct_compare_strings(!=, l);
 		} else {
-			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_ERR, _exit);
+			_set_tuple3_result(l, 1);
+			_handle_error_on_obj(s, SE_RN_STRING_EXPECTED, (l && *l) ? ((_object_t*)(((_tuple3_t*)(*l))->e1)) : 0, MB_FUNC_WARNING, _exit, result);
 		}
 	} else {
 		_instruct_num_op_num(!=, l);
@@ -3989,7 +4057,7 @@ int _core_let(mb_interpreter_t* s, void** l) {
 		ast = ast->next;
 	}
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type == _DT_VAR) {
@@ -4001,16 +4069,16 @@ int _core_let(mb_interpreter_t* s, void** l) {
 			goto _exit;
 		}
 	} else {
-		_handle_error_on_obj(s, SE_RN_VAR_OR_ARRAY_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_VAR_OR_ARRAY_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_FUNC || strcmp(obj->data.func->name, "=") != 0) {
-		_handle_error_on_obj(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ASSIGN_OPERATOR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 
 	ast = ast->next;
@@ -4060,7 +4128,7 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	/* Array name */
 	ast = (_ls_node_t*)(*l);
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_ARRAY) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_IDENTIFIER_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 	arr = (_object_t*)(ast->data);
@@ -4069,25 +4137,25 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	dummy.name = arr->data.array->name;
 	/* ( */
 	if(!ast->next || ((_object_t*)(ast->next->data))->type != _DT_FUNC || ((_object_t*)(ast->next->data))->data.func->pointer != _core_open_bracket) {
-		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_OPEN_BRACKET_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 	/* Array subscript */
 	if(!ast->next) {
-		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_ARRAY_SUBSCRIPT_EXPECTED, (ast && ast->next) ? ((_object_t*)(ast->next->data)) : 0, MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 	while(((_object_t*)(ast->data))->type != _DT_FUNC || ((_object_t*)(ast->data))->data.func->pointer != _core_close_bracket) {
 		/* Get an integer value */
 		len = (_object_t*)(ast->data);
 		if(!_try_get_value(len, &val, _DT_INT)) {
-			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_TYPE_NOT_MATCH, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(val.integer <= 0) {
-			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_ILLEGAL_BOUND, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		if(dummy.dimension_count >= _MAX_DIMENSION_COUNT) {
-			_handle_error_on_obj(s, SE_RN_DIMENSION_TOO_MUCH, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_DIMENSION_TOO_MUCH, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		dummy.dimensions[dummy.dimension_count++] = (int)val.integer;
 		if(dummy.count) {
@@ -4135,7 +4203,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 	obj = (_object_t*)(ast->data);
 	if(val->data.integer) {
 		if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_then)) {
-			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 
 		do {
@@ -4165,7 +4233,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
 			if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_else)) {
-				_handle_error_on_obj(s, SE_RN_ELSE_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+				_handle_error_on_obj(s, SE_RN_ELSE_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 			}
 
 			do {
@@ -4240,7 +4308,7 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_VAR) {
-		_handle_error_on_obj(s, SE_RN_LOOP_VAR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_LOOP_VAR_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	var_loop = obj->data.variable;
 
@@ -4252,12 +4320,12 @@ int _core_for(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_to)) {
-		_handle_error_on_obj(s, SE_RN_TO_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_TO_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 
 	ast = ast->next;
 	if(!ast) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	to_node = ast;
 
@@ -4275,7 +4343,7 @@ _to:
 	} else {
 		ast = ast->next;
 		if(!ast) {
-			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 
 		result = _calc_expression(s, &ast, &step_val_ptr);
@@ -4476,7 +4544,7 @@ int _core_do(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_EOS)) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 
@@ -4506,7 +4574,7 @@ _loop_begin:
 
 	obj = (_object_t*)(ast->data);
 	if(!(obj->type == _DT_FUNC && obj->data.func->pointer == _core_until)) {
-		_handle_error_on_obj(s, SE_RN_UNTIL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_UNTIL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	ast = ast->next;
 
@@ -4569,14 +4637,14 @@ int _core_goto(mb_interpreter_t* s, void** l) {
 
 	obj = (_object_t*)(ast->data);
 	if(obj->type != _DT_LABEL) {
-		_handle_error_on_obj(s, SE_RN_JUMP_LABEL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_JUMP_LABEL_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 
 	label = (_label_t*)(obj->data.label);
 	if(!label->node) {
 		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, label->name);
 		if(!(glbsyminscope && ((_object_t*)(glbsyminscope->data))->type == _DT_LABEL)) {
-			_handle_error_on_obj(s, SE_RN_LABEL_NOT_EXISTS, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_LABEL_NOT_EXISTS, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 		label->node = ((_object_t*)(glbsyminscope->data))->data.label->node;
 	}
@@ -4619,7 +4687,7 @@ int _core_return(mb_interpreter_t* s, void** l) {
 	running = (_running_context_t*)(s->running_context);
 	ast = (_ls_node_t*)_ls_popback(running->sub_stack);
 	if(!ast) {
-		_handle_error_on_obj(s, SE_RN_NO_RETURN_POINT, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_NO_RETURN_POINT, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	*l = ast;
 
@@ -5343,7 +5411,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	ast = ast->next;
 	if(!ast || !ast->data) {
-		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit);
+		_handle_error_on_obj(s, SE_RN_SYNTAX, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 
 	obj = (_object_t*)(ast->data);
@@ -5384,7 +5452,7 @@ int _std_print(mb_interpreter_t* s, void** l) {
 			}
 			break;
 		default:
-			_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, DON(ast), MB_FUNC_ERR, _exit, result);
 			break;
 		}
 
@@ -5392,17 +5460,14 @@ int _std_print(mb_interpreter_t* s, void** l) {
 			break;
 		}
 		obj = (_object_t*)(ast->data);
-		if(obj->type == _DT_EOS) {
-			break;
-		}
-		if(obj->type == _DT_SEP && obj->data.separator == ':') {
+		if(_is_print_terminal(s, obj)) {
 			break;
 		}
 		if(obj->type == _DT_SEP && (obj->data.separator == ',' || obj->data.separator == ';')) {
 			ast = ast->next;
 			obj = (_object_t*)(ast->data);
 		} else {
-			_handle_error_on_obj(s, SE_RN_COMMA_OR_SEMICOLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit);
+			_handle_error_on_obj(s, SE_RN_COMMA_OR_SEMICOLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 	} while(ast && !(obj->type == _DT_SEP && obj->data.separator == ':') && (obj->type == _DT_SEP || !_is_expression_terminal(s, obj)));
 
