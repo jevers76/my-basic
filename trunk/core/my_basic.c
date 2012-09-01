@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 29
+#define _VER_REVISION 30
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0029"
+#define _MB_VERSION_STRING "1.0.0030"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -297,6 +297,7 @@ typedef struct _parsing_context_t {
 
 /* Running context */
 typedef struct _running_context_t {
+	_ls_node_t* temp_values;
 	_ls_node_t* suspent_point;
 	_ls_node_t* sub_stack;
 	_var_t* next_loop_var;
@@ -1784,8 +1785,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 			(*val)->data = c->data;
 		}
 	}
-	_ls_try_remove(garbage, c, _ls_cmp_data);
-	if(guard_val != c) {
+	if(guard_val != c && _ls_try_remove(garbage, c, _ls_cmp_data)) {
 		_destroy_object(c, 0);
 	}
 
@@ -3101,6 +3101,9 @@ int mb_open(mb_interpreter_t** s) {
 
 	running = (_running_context_t*)mb_malloc(sizeof(_running_context_t));
 	memset(running, 0, sizeof(_running_context_t));
+
+	running->temp_values = _ls_create();
+
 	running->sub_stack = _ls_create();
 	(*s)->running_context = running;
 
@@ -3128,6 +3131,10 @@ int mb_close(mb_interpreter_t** s) {
 	_close_core_lib(*s);
 
 	running = (_running_context_t*)((*s)->running_context);
+
+	_ls_foreach(running->temp_values, _destroy_object);
+	_ls_destroy(running->temp_values);
+
 	_ls_destroy(running->sub_stack);
 	safe_free(running);
 
@@ -3388,11 +3395,18 @@ int mb_pop_value(mb_interpreter_t* s, void** l, mb_value_t* val) {
 	running = (_running_context_t*)(s->running_context);
 
 	val_ptr = &val_obj;
+	memset(val_ptr, 0, sizeof(_object_t));
 
 	ast = (_ls_node_t*)(*l);
 	result = _calc_expression(s, &ast, &val_ptr);
 	if(result != MB_FUNC_OK) {
 		goto _exit;
+	}
+
+	if(val_ptr->type == _DT_STRING && !val_ptr->ref) {
+		val_ptr = (_object_t*)mb_malloc(sizeof(_object_t));
+		memcpy(val_ptr, &val_obj, sizeof(_object_t));
+		_ls_pushback(running->temp_values, val_ptr);
 	}
 
 	if(running->no_eat_comma_mark < _NO_EAT_COMMA) {
@@ -3608,6 +3622,8 @@ int mb_run(mb_interpreter_t* s) {
 	} while(ast);
 
 _exit:
+	_ls_foreach(running->temp_values, _destroy_object);
+
 	return result;
 }
 
