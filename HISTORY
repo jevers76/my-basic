@@ -1,3 +1,7 @@
+Sep. 1 2012
+Fixed a redisposing bug when retrieving a string argument, thanks to Ahmad Hawwash for pointing it out
+Fixed a memory leak after retrieving a composited string argument
+
 Aug. 29 2012
 Modified an odd string comparison behavior, thanks to Matthias Nott for testing it out
 Added a warning system, disabled warning as default

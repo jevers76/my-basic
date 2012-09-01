@@ -188,15 +188,15 @@
 			Name="doc"
 			>
 			<File
-				RelativePath=".\history.txt"
+				RelativePath=".\HISTORY"
 				>
 			</File>
 			<File
-				RelativePath=".\license.txt"
+				RelativePath=".\LICENSE"
 				>
 			</File>
 			<File
-				RelativePath=".\readme.txt"
+				RelativePath=".\README"
 				>
 			</File>
 		</Filter>
