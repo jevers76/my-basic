@@ -1558,8 +1558,12 @@ _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opn
 	_tuple3_t* tpptr = 0;
 	int _status = 0;
 
-	mb_assert(s && optr && opnd1);
+	mb_assert(s && optr);
 	mb_assert(optr->type == _DT_FUNC);
+
+	if(!opnd1) {
+		return result;
+	}
 
 	result = (_object_t*)mb_malloc(sizeof(_object_t));
 	memset(result, 0, sizeof(_object_t));
@@ -1629,6 +1633,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 	_object_t* guard_val = 0;
 	int bracket_count = 0;
 	bool_t hack = false;
+	_ls_node_t* errn = 0;
 
 	mb_assert(s && l);
 
@@ -1681,6 +1686,20 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				c = _exp_assign;
 				if(ast) {
 					ast = ast->prev;
+				}
+				if(bracket_count) {
+					_object_t _cb;
+					_func_t _cbf;
+					memset(&_cb, 0, sizeof(_object_t));
+					_cb.type = _DT_FUNC;
+					_cb.data.func = &_cbf;
+					_cb.data.func->name = ")";
+					_cb.data.func->pointer = _core_close_bracket;
+					while(bracket_count) {
+						_ls_pushback(optr, &_cb);
+						bracket_count--;
+					}
+					errn = ast;
 				}
 			} else {
 				if(c->type == _DT_ARRAY) {
@@ -1751,7 +1770,10 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				b = (_object_t*)_ls_popback(opnd);
 				a = (_object_t*)_ls_popback(opnd);
 				r = _operate_operand(s, theta, a, b, &result);
-				mb_assert(r);
+				if(!r) {
+					_ls_clear(optr);
+					_handle_error_on_obj(s, SE_RN_OPERATION_FAILED, DON(errn), MB_FUNC_ERR, _exit, result);
+				}
 				_ls_pushback(opnd, r);
 				_ls_pushback(garbage, r);
 				if(c->type == _DT_FUNC && c->data.func->pointer == _core_close_bracket) {
@@ -1760,6 +1782,10 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				break;
 			}
 		}
+	}
+
+	if(errn) {
+		_handle_error_on_obj(s, SE_RN_CLOSE_BRACKET_EXPECTED, DON(errn), MB_FUNC_ERR, _exit, result);
 	}
 
 	c = (_object_t*)(_ls_popback(opnd));
@@ -3623,6 +3649,7 @@ int mb_run(mb_interpreter_t* s) {
 
 _exit:
 	_ls_foreach(running->temp_values, _destroy_object);
+	_ls_clear(running->temp_values);
 
 	return result;
 }
