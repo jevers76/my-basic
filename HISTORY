@@ -1,3 +1,10 @@
+Sep. 12 2012
+Fixed a bug in ASC
+Fixed a label parsing, jumping bug, thanks to Ahmad Hawwash for pointing above two issues out
+Fixed a crash bug in IF statement
+Added divide by zero processing
+Added calculation error raising
+
 Sep. 1 2012
 Fixed a redisposing bug when retrieving a string argument, thanks to Ahmad Hawwash for pointing it out
 Fixed a memory leak after retrieving a composited string argument
