@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 30
+#define _VER_REVISION 31
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0030"
+#define _MB_VERSION_STRING "1.0.0031"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -202,6 +202,8 @@ static const char* _ERR_DESC[] = {
 	"Loop variable expected",
 	"Jump label expected",
 	"Invalid identifier usage",
+	"Calculation error",
+	"Divide by zero",
 	/** Extended abort */
 	"Extended abort",
 };
@@ -209,6 +211,9 @@ static const char* _ERR_DESC[] = {
 /* Data type */
 #define _EOS '\n'
 #define _NULL_STRING "(empty)"
+
+#define _FNAN 0xffc00000
+#define _FINF 0x7f800000
 
 typedef enum _data_e {
 	_DT_NIL = -1,
@@ -459,6 +464,34 @@ static _object_t* _exp_assign = 0;
 		_str1 = _extract_string(opnd1); \
 		_str2 = _extract_string(opnd2); \
 		val->data.integer = strcmp(_str1, _str2) __optr 0; \
+	} while(0)
+
+#define _proc_div_by_zero(__s, __tuple, __exit, __result) \
+	do { \
+		_object_t opndv1; \
+		_object_t opndv2; \
+		_tuple3_t* tpptr = (_tuple3_t*)(*__tuple); \
+		_object_t* opnd1 = (_object_t*)(tpptr->e1); \
+		_object_t* opnd2 = (_object_t*)(tpptr->e2); \
+		_object_t* val = (_object_t*)(tpptr->e3); \
+		opndv1.type = \
+			(opnd1->type == _DT_INT || (opnd1->type == _DT_VAR && opnd1->data.variable->data->type == _DT_INT)) ? \
+				_DT_INT : _DT_REAL; \
+		opndv1.data = opnd1->type == _DT_VAR ? opnd1->data.variable->data->data : opnd1->data; \
+		opndv2.type = \
+			(opnd2->type == _DT_INT || (opnd2->type == _DT_VAR && opnd2->data.variable->data->type == _DT_INT)) ? \
+				_DT_INT : _DT_REAL; \
+		opndv2.data = opnd2->type == _DT_VAR ? opnd2->data.variable->data->data : opnd2->data; \
+		if((opndv2.type == _DT_INT && opndv2.data.integer == 0) || (opndv2.type == _DT_REAL && opndv2.data.float_point == 0.0f)) { \
+			if((opndv1.type == _DT_INT && opndv1.data.integer == 0) || (opndv1.type == _DT_REAL && opndv1.data.float_point == 0.0f)) { \
+				val->type = _DT_REAL; \
+				val->data.integer = _FNAN; \
+			} else { \
+				val->type = _DT_REAL; \
+				val->data.integer = _FINF; \
+			} \
+			_handle_error_on_obj((__s), SE_RN_DIVIDE_BY_ZERO, ((__tuple) && *(__tuple)) ? ((_object_t*)(((_tuple3_t*)(*(__tuple)))->e1)) : 0, MB_FUNC_WARNING, __exit, __result); \
+		} \
 	} while(0)
 
 #define _set_tuple3_result(__l, __r) \
@@ -1706,7 +1739,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 					ast = ast->prev;
 					result = _get_array_index(s, &ast, &arr_idx);
 					if(result != MB_FUNC_OK) {
-						goto _exit;
+						_handle_error_on_obj(s, SE_RN_CALCULATION_ERROR, DON(ast), MB_FUNC_ERR, _exit, result);
 					}
 					ast = ast->next;
 					_get_array_elem(s, c->data.array, arr_idx, &arr_val, &arr_type);
@@ -1726,7 +1759,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 					ast = ast->prev;
 					result = (c->data.func->pointer)(s, (void**)(&ast));
 					if(result != MB_FUNC_OK) {
-						goto _exit;
+						_handle_error_on_obj(s, SE_RN_CALCULATION_ERROR, DON(ast), MB_FUNC_ERR, _exit, result);
 					}
 					c = (_object_t*)mb_malloc(sizeof(_object_t));
 					memset(c, 0, sizeof(_object_t));
@@ -2004,6 +2037,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 	unsigned int ul = 0;
 	_parsing_context_t* context = 0;
 	_ls_node_t* glbsyminscope = 0;
+	mb_unrefvar(l);
 
 	mb_assert(s && sym && obj);
 
@@ -2092,10 +2126,9 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 	case _DT_LABEL:
 		if(context->current_char == ':') {
 			if(value) {
-				_ls_node_t* _n = _ls_back(l);
+				(*obj)->data.label = value;
+				(*obj)->ref = true;
 				*delsym = true;
-
-				_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(_n), MB_PARSING_ERR, _exit, result);
 			} else {
 				tmp.label = (_label_t*)mb_malloc(sizeof(_label_t));
 				memset(tmp.label, 0, sizeof(_label_t));
@@ -2129,7 +2162,6 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 		break;
 	}
 
-_exit:
 	return result;
 }
 
@@ -2215,15 +2247,27 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		result = _DT_SEP;
 		goto _exit;
 	}
+	/* _var_t */
+	glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
+	if(glbsyminscope) {
+		if(((_object_t*)glbsyminscope->data)->type != _DT_LABEL) {
+			*value = glbsyminscope->data;
+
+			result = _DT_VAR;
+			goto _exit;
+		}
+	}
 	/* _label_t */
 	if(context->current_char == ':') {
-		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
-		if(glbsyminscope) {
-			*value = glbsyminscope->data;
-		}
+		if(!context->last_symbol || context->last_symbol->type == _DT_EOS) {
+			glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
+			if(glbsyminscope) {
+				*value = glbsyminscope->data;
+			}
 
-		result = _DT_LABEL;
-		goto _exit;
+			result = _DT_LABEL;
+			goto _exit;
+		}
 	}
 	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
 		if(context->last_symbol->data.func->pointer == _core_goto || context->last_symbol->data.func->pointer == _core_gosub) {
@@ -2231,14 +2275,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 			goto _exit;
 		}
 	}
-	/* _var_t */
-	glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
-	if(glbsyminscope) {
-		*value = glbsyminscope->data;
-
-		result = _DT_VAR;
-		goto _exit;
-	}
+	/* else */
 	result = _DT_VAR;
 
 _exit:
@@ -2261,9 +2298,9 @@ int _parse_char(mb_interpreter_t* s, char c, int pos, unsigned short row, unsign
 			c += 'A' - 'a';
 		}
 
-		if(_is_blank(c)) { /*   */
+		if(_is_blank(c)) { /* \t ' ' */
 			result += _cut_symbol(s, pos, row, col);
-		} else if(_is_newline(c)) { /* \r \n EOF*/
+		} else if(_is_newline(c)) { /* \r \n EOF */
 			result += _cut_symbol(s, pos, row, col);
 			result += _append_char_to_symbol(s, _EOS);
 			result += _cut_symbol(s, pos, row, col);
@@ -3774,8 +3811,10 @@ int _core_div(mb_interpreter_t* s, void** l) {
 
 	mb_assert(s && l);
 
+	_proc_div_by_zero(s, l, _exit, result);
 	_instruct_num_op_num(/, l);
 
+_exit:
 	return result;
 }
 
@@ -4259,6 +4298,10 @@ int _core_if(mb_interpreter_t* s, void** l) {
 				ast = ast->prev;
 			}
 		} while(ast && ((_object_t*)(ast->data))->type == _DT_SEP && ((_object_t*)(ast->data))->data.separator == ':');
+
+		if(!ast) {
+			goto _exit;
+		}
 
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
@@ -5229,7 +5272,7 @@ int _std_asc(mb_interpreter_t* s, void** l) {
 
 	mb_check(mb_attempt_close_bracket(s, l));
 
-	if(strlen(arg) <= 1) {
+	if(arg[0] == '\0') {
 		result = MB_FUNC_ERR;
 		goto _exit;
 	}

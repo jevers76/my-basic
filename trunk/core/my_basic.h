@@ -145,6 +145,8 @@ typedef enum mb_error_e {
 	SE_RN_LOOP_VAR_EXPECTED,
 	SE_RN_JUMP_LABEL_EXPECTED,
 	SE_RN_INVALID_ID_USAGE,
+	SE_RN_CALCULATION_ERROR,
+	SE_RN_DIVIDE_BY_ZERO,
 	/** Extended abort */
 	SE_EA_EXTENDED_ABORT,
 } mb_error_e;
@@ -169,7 +171,7 @@ typedef struct mb_value_t {
 
 typedef void (* mb_error_handler_t)(struct mb_interpreter_t*, enum mb_error_e, char*, int, unsigned short, unsigned short, int);
 typedef int (* mb_func_t)(struct mb_interpreter_t*, void**);
-typedef int (* mb_print_func_t)(const char* format, ...);
+typedef int (* mb_print_func_t)(const char*, ...);
 
 typedef struct mb_interpreter_t {
 	void* local_func_dict;

@@ -16,5 +16,6 @@ del /f /s /q output\*.manifest
 del /f /s /q output\*.obj
 del /f /s /q output\*.pdb
 del /f /s /q output\*.idb
+del /f /s /q output\my_basic_d.exe
 
 echo Cleaning done!
