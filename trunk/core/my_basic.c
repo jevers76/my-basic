@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 31
+#define _VER_REVISION 32
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0031"
+#define _MB_VERSION_STRING "1.0.0032"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -308,6 +308,7 @@ typedef struct _running_context_t {
 	_var_t* next_loop_var;
 	mb_value_t intermediate_value;
 	int_t no_eat_comma_mark;
+	_ls_node_t* skip_to_eoi;
 } _running_context_t;
 
 /* Expression processing */
@@ -2809,8 +2810,11 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	int result = MB_FUNC_OK;
 	_ls_node_t* ast = 0;
 	_object_t* obj = 0;
+	_running_context_t* running = 0;
 
 	mb_assert(s && l);
+
+	running = (_running_context_t*)(s->running_context);
 
 	ast = *l;
 
@@ -2831,6 +2835,16 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	}
 	if(ast) {
 		ast = ast->next;
+	}
+	if(running->skip_to_eoi && running->skip_to_eoi == _ls_back(running->sub_stack)) {
+		running->skip_to_eoi = 0;
+		obj = (_object_t*)(ast->data);
+		if(obj->type != _DT_EOS) {
+			result = _skip_to(s, &ast, 0, _DT_EOS);
+			if(result != MB_FUNC_OK) {
+				goto _exit;
+			}
+		}
 	}
 
 _exit:
@@ -4268,8 +4282,11 @@ int _core_if(mb_interpreter_t* s, void** l) {
 	_ls_node_t* ast = 0;
 	_object_t* val = 0;
 	_object_t* obj = 0;
+	_running_context_t* running = 0;
 
 	mb_assert(s && l);
+
+	running = (_running_context_t*)(s->running_context);
 
 	ast = (_ls_node_t*)(*l);
 	ast = ast->next;
@@ -4288,6 +4305,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 			_handle_error_on_obj(s, SE_RN_INTEGER_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
 
+		running->skip_to_eoi = _ls_back(running->sub_stack);
 		do {
 			ast = ast->next;
 			result = _execute_statement(s, &ast);
@@ -4305,6 +4323,7 @@ int _core_if(mb_interpreter_t* s, void** l) {
 
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
+			running->skip_to_eoi = 0;
 			result = _skip_to(s, &ast, 0, _DT_EOS);
 			if(result != MB_FUNC_OK) {
 				goto _exit;
