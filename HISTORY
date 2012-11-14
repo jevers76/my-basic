@@ -1,3 +1,6 @@
+Nov. 14 2012
+Fixed a cross routine RETURN bug, thanks to Bruce Kendall for pointing it out
+
 Sep. 12 2012
 Fixed a bug in ASC
 Fixed a label parsing, jumping bug, thanks to Ahmad Hawwash for pointing above two issues out
