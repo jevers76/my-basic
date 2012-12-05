@@ -1,3 +1,6 @@
+Dec. 5 2012
+Fixed a minus calculation bug, thanks to Bill Walker for pointing it out
+
 Nov. 14 2012
 Fixed a cross routine RETURN bug, thanks to Bruce Kendall for pointing it out
 

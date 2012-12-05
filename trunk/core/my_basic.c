@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 32
+#define _VER_REVISION 33
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0032"
+#define _MB_VERSION_STRING "1.0.0033"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -2221,7 +2221,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		}
 	}
 	/* _func_t */
-	if(context->last_symbol && (context->last_symbol->type == _DT_FUNC ||
+	if(context->last_symbol && ((context->last_symbol->type == _DT_FUNC && context->last_symbol->data.func->pointer != _core_close_bracket)||
 		context->last_symbol->type == _DT_SEP)) {
 		if(strcmp("-", sym) == 0) {
 			*value = (void*)(intptr_t)(_core_neg);
