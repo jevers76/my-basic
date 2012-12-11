@@ -12,7 +12,7 @@
 
 *Q: Where can I learn some basic grammar about MY-BASIC?*
 
-*A:* MY-BASIC's grammar is similar to structured BASIC in early era, but without line number. Experiences on any other BASIC dialects will be helpful to understand and think in MY-BASIC. Anyway necessary introductions are available in the "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec. 2012.zip MY-BASIC Quick Reference]".
+*A:* MY-BASIC's grammar is similar to structured BASIC in early era, but without line number. Experiences on any other BASIC dialects will be helpful to understand and think in MY-BASIC. Anyway necessary introductions are available in the "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec.%202012.zip MY-BASIC Quick Reference]".
 
 *Q: Where can I get some samples?*
 
@@ -20,7 +20,7 @@
 
 *Q: How is MY-BASIC documented?*
 
-*A:* You can download a latest "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec. 2012.zip MY-BASIC Quick Reference]" manual from the [http://code.google.com/p/my-basic/downloads/list download list].
+*A:* You can download a latest "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec.%202012.zip MY-BASIC Quick Reference]" manual from the [http://code.google.com/p/my-basic/downloads/list download list].
 
 == History ==
 
@@ -52,7 +52,7 @@
 
 *Q: How about programming library?*
 
-*A:* MY-BASIC supplies a small set of frequently used functions as a standard library which provides some fundamental numeric and string functions. You can see the "Core and Standard Libraries" section in the "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec. 2012.zip MY-BASIC Quick Reference]" for details.
+*A:* MY-BASIC supplies a small set of frequently used functions as a standard library which provides some fundamental numeric and string functions. You can see the "Core and Standard Libraries" section in the "[http://code.google.com/p/my-basic/downloads/detail?name=MY-BASIC%20Quick%20Reference%201.0%20Dec.%202012.zip MY-BASIC Quick Reference]" for details.
 
 == Support ==
 
