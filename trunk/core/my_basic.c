@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 33
+#define _VER_REVISION 34
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0033"
+#define _MB_VERSION_STRING "1.0.0034"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -204,6 +204,8 @@ static const char* _ERR_DESC[] = {
 	"Invalid identifier usage",
 	"Calculation error",
 	"Divide by zero",
+	"Invalid expression",
+	"Out of memory",
 	/** Extended abort */
 	"Extended abort",
 };
@@ -2549,7 +2551,9 @@ void _init_array(_array_t* arr) {
 	mb_assert(arr->count > 0);
 	mb_assert(!arr->raw);
 	arr->raw = (void*)mb_malloc(elemsize * arr->count);
-	memset(arr->raw, 0, elemsize * arr->count);
+	if(arr->raw) {
+		memset(arr->raw, 0, elemsize * arr->count);
+	}
 }
 
 void _clear_array(_array_t* arr) {
@@ -2826,6 +2830,11 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	case _DT_VAR: /* Fall through */
 	case _DT_ARRAY:
 		result = _core_let(s, (void**)(&ast));
+		break;
+	case _DT_INT: /* Fall through */
+	case _DT_REAL: /* Fall through */
+	case _DT_STRING:
+		_handle_error_on_obj(s, SE_RN_INVALID_EXPRESSION, DON(ast), MB_FUNC_ERR, _exit, result);
 		break;
 	default:
 		break;
@@ -4269,6 +4278,12 @@ int _core_dim(mb_interpreter_t* s, void** l) {
 	_clear_array(arr->data.array);
 	*(arr->data.array) = dummy;
 	_init_array(arr->data.array);
+	if(!arr->data.array->raw) {
+		arr->data.array->dimension_count = 0;
+		arr->data.array->dimensions[0] = 0;
+		arr->data.array->count = 0;
+		_handle_error_on_obj(s, SE_RN_OUT_OF_MEMORY, DON(ast), MB_FUNC_ERR, _exit, result);
+	}
 
 _exit:
 	*l = ast;

@@ -147,6 +147,8 @@ typedef enum mb_error_e {
 	SE_RN_INVALID_ID_USAGE,
 	SE_RN_CALCULATION_ERROR,
 	SE_RN_DIVIDE_BY_ZERO,
+	SE_RN_INVALID_EXPRESSION,
+	SE_RN_OUT_OF_MEMORY,
 	/** Extended abort */
 	SE_EA_EXTENDED_ABORT,
 } mb_error_e;
