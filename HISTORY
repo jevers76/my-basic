@@ -1,3 +1,7 @@
+Dec. 14 2012
+Added an invalid expression error handling
+Added an out of memory error handling
+
 Dec. 5 2012
 Fixed a minus calculation bug, thanks to Bill Walker for pointing it out
 

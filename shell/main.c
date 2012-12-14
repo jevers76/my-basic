@@ -191,7 +191,7 @@ static int beep(mb_interpreter_t* s, void** l) {
 static void _on_error(mb_interpreter_t* s, mb_error_e e, char* m, int p, unsigned short row, unsigned short col, int abort_code) {
 	mb_unrefvar(s);
 	if(SE_NO_ERR != e) {
-		printf("Error :\n    [POS] %d, [ROW] %d, [COL] %d,\n    [CODE] %d, [MESSAGE] %s, [ABORT CODE] %d\n", p, row, col, e, m, abort_code);
+		printf("Error:\n    [POS] %d, [ROW] %d, [COL] %d,\n    [CODE] %d, [MESSAGE] %s, [ABORT CODE] %d\n", p, row, col, e, m, abort_code);
 	}
 }
 
@@ -319,10 +319,10 @@ static void _kill_program(const char* path) {
 }
 
 static void _show_tip(void) {
-	printf("MY-BASIC Interpreter Shell - %s\n", mb_ver_string());
+	printf("MY-BASIC Interpreter Shell - %s.\n", mb_ver_string());
 	printf("Copyright (c) 2011 - 2012 Tony's Toy. All Rights Reserved.\n");
-	printf("For more information, see http://code.google.com/p/my-basic/\n");
-	printf("Input HELP and hint enter to view help information\n");
+	printf("For more information, see http://code.google.com/p/my-basic/.\n");
+	printf("Input HELP and hint enter to view help information.\n");
 }
 
 static void _show_help(void) {
