@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 - 2012 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2013 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 34
+#define _VER_REVISION 35
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0034"
+#define _MB_VERSION_STRING "1.0.0035"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/

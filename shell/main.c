@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 - 2012 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2013 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -277,6 +277,7 @@ static void _edit_program(const char* no) {
 	memset(line, 0, _MAX_LINE_LENGTH);
 	printf("%d]", lno + 1);
 	gets(line);
+	c->lines[lno] = (char*)realloc(c->lines[lno], strlen(line) + 1);
 	strcpy(c->lines[lno], line);
 }
 
@@ -320,7 +321,7 @@ static void _kill_program(const char* path) {
 
 static void _show_tip(void) {
 	printf("MY-BASIC Interpreter Shell - %s.\n", mb_ver_string());
-	printf("Copyright (c) 2011 - 2012 Tony's Toy. All Rights Reserved.\n");
+	printf("Copyright (c) 2011 - 2013 Tony's Toy. All Rights Reserved.\n");
 	printf("For more information, see http://code.google.com/p/my-basic/.\n");
 	printf("Input HELP and hint enter to view help information.\n");
 }
