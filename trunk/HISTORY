@@ -1,3 +1,7 @@
+Feb. 25 2013
+Fixed a cross routine multi-statement execution bug, thanks to Bruce Kendall for pointing it out
+Fixed a memory corruption bug when loading a script file
+
 Jan. 9 2013
 Fixed a crash bug when using EDIT command
 
