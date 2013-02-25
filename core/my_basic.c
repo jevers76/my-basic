@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 35
+#define _VER_REVISION 36
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0035"
+#define _MB_VERSION_STRING "1.0.0036"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -2815,6 +2815,7 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	_ls_node_t* ast = 0;
 	_object_t* obj = 0;
 	_running_context_t* running = 0;
+	bool_t skip_to_eoi = true;
 
 	mb_assert(s && l);
 
@@ -2843,9 +2844,13 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 		goto _exit;
 	}
 	if(ast) {
+		obj = (_object_t*)(ast->data);
+		if(obj->type == _DT_SEP && obj->data.separator == ':') {
+			skip_to_eoi = false;
+		}
 		ast = ast->next;
 	}
-	if(running->skip_to_eoi && running->skip_to_eoi == _ls_back(running->sub_stack)) {
+	if(skip_to_eoi && running->skip_to_eoi && running->skip_to_eoi == _ls_back(running->sub_stack)) {
 		running->skip_to_eoi = 0;
 		obj = (_object_t*)(ast->data);
 		if(obj->type != _DT_EOS) {
@@ -3645,7 +3650,7 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 		buf[l] = '\0';
 
 		result = mb_load_string(s, buf);
-		free(buf);
+		mb_free(buf);
 		if(result) {
 			goto _exit;
 		}
