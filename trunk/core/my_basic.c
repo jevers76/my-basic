@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 36
+#define _VER_REVISION 37
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0036"
+#define _MB_VERSION_STRING "1.0.0037"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -2845,7 +2845,7 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	}
 	if(ast) {
 		obj = (_object_t*)(ast->data);
-		if(obj->type == _DT_SEP && obj->data.separator == ':') {
+		if(obj && obj->type == _DT_SEP && obj->data.separator == ':') {
 			skip_to_eoi = false;
 		}
 		ast = ast->next;

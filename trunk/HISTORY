@@ -1,3 +1,6 @@
+Jul. 19 2013
+Fixed a crash bug in _execute_statement, thanks to Jon Mayo for pointing it out
+
 Feb. 25 2013
 Fixed a cross routine multi-statement execution bug, thanks to Bruce Kendall for pointing it out
 Fixed a memory corruption bug when loading a script file
