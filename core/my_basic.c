@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 - 2013 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2014 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 37
+#define _VER_REVISION 38
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0037"
+#define _MB_VERSION_STRING "1.0.0038"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -198,6 +198,7 @@ static const char* _ERR_DESC[] = {
 	"Integer expected",
 	"ELSE statement expected",
 	"TO statement expected",
+	"NEXT statement expected",
 	"UNTIL statement expected",
 	"Loop variable expected",
 	"Jump label expected",
@@ -4513,6 +4514,9 @@ _to:
 				goto _exit;
 			}
 
+			if(!ast) {
+				_handle_error_on_obj(s, SE_RN_NEXT_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
+			}
 			obj = (_object_t*)(ast->data);
 		}
 

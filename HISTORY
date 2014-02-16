@@ -1,3 +1,6 @@
+Feb. 16 2014
+Fixed a crash bug in _core_for, thanks to mummylauncher for pointing it out
+
 Jul. 19 2013
 Fixed a crash bug in _execute_statement, thanks to Jon Mayo for pointing it out
 
