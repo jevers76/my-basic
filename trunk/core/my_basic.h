@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 - 2013 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2014 Tony & Tony's Toy Game Development Team
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -141,6 +141,7 @@ typedef enum mb_error_e {
 	SE_RN_INTEGER_EXPECTED,
 	SE_RN_ELSE_EXPECTED,
 	SE_RN_TO_EXPECTED,
+	SE_RN_NEXT_EXPECTED,
 	SE_RN_UNTIL_EXPECTED,
 	SE_RN_LOOP_VAR_EXPECTED,
 	SE_RN_JUMP_LABEL_EXPECTED,
