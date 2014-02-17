@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 38
+#define _VER_REVISION 39
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0038"
+#define _MB_VERSION_STRING "1.0.0039"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -205,6 +205,7 @@ static const char* _ERR_DESC[] = {
 	"Invalid identifier usage",
 	"Calculation error",
 	"Divide by zero",
+	"MOD by zero",
 	"Invalid expression",
 	"Out of memory",
 	/** Extended abort */
@@ -470,7 +471,7 @@ static _object_t* _exp_assign = 0;
 		val->data.integer = strcmp(_str1, _str2) __optr 0; \
 	} while(0)
 
-#define _proc_div_by_zero(__s, __tuple, __exit, __result) \
+#define _proc_div_by_zero(__s, __tuple, __exit, __result, __kind) \
 	do { \
 		_object_t opndv1; \
 		_object_t opndv2; \
@@ -494,7 +495,7 @@ static _object_t* _exp_assign = 0;
 				val->type = _DT_REAL; \
 				val->data.integer = _FINF; \
 			} \
-			_handle_error_on_obj((__s), SE_RN_DIVIDE_BY_ZERO, ((__tuple) && *(__tuple)) ? ((_object_t*)(((_tuple3_t*)(*(__tuple)))->e1)) : 0, MB_FUNC_WARNING, __exit, __result); \
+			_handle_error_on_obj((__s), __kind, ((__tuple) && *(__tuple)) ? ((_object_t*)(((_tuple3_t*)(*(__tuple)))->e1)) : 0, MB_FUNC_WARNING, __exit, __result); \
 		} \
 	} while(0)
 
@@ -3840,7 +3841,7 @@ int _core_div(mb_interpreter_t* s, void** l) {
 
 	mb_assert(s && l);
 
-	_proc_div_by_zero(s, l, _exit, result);
+	_proc_div_by_zero(s, l, _exit, result, SE_RN_DIVIDE_BY_ZERO);
 	_instruct_num_op_num(/, l);
 
 _exit:
@@ -3853,8 +3854,10 @@ int _core_mod(mb_interpreter_t* s, void** l) {
 
 	mb_assert(s && l);
 
+	_proc_div_by_zero(s, l, _exit, result, SE_RN_MOD_BY_ZERO);
 	_instruct_int_op_int(%, l);
 
+_exit:
 	return result;
 }
 
