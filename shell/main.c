@@ -321,7 +321,7 @@ static void _kill_program(const char* path) {
 
 static void _show_tip(void) {
 	printf("MY-BASIC Interpreter Shell - %s.\n", mb_ver_string());
-	printf("Copyright (c) 2011 - 2013 Tony's Toy. All Rights Reserved.\n");
+	printf("Copyright (c) 2011 - 2014 Tony's Toy. All Rights Reserved.\n");
 	printf("For more information, see http://code.google.com/p/my-basic/.\n");
 	printf("Input HELP and hint enter to view help information.\n");
 }
