@@ -3,7 +3,7 @@
 **
 ** For the latest info, see http://code.google.com/p/my-basic/
 **
-** Copyright (c) 2011 - 2014 Tony & Tony's Toy Game Development Team
+** Copyright (c) 2011 - 2014 paladin_t
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a copy of
 ** this software and associated documentation files (the "Software"), to deal in
@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 39
+#define _VER_REVISION 40
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0039"
+#define _MB_VERSION_STRING "1.0.0040"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -202,6 +202,7 @@ static const char* _ERR_DESC[] = {
 	"UNTIL statement expected",
 	"Loop variable expected",
 	"Jump label expected",
+	"Variable expected",
 	"Invalid identifier usage",
 	"Calculation error",
 	"Divide by zero",
@@ -1886,7 +1887,9 @@ void _set_current_error(mb_interpreter_t* s, mb_error_e err) {
 	/* Set current error information */
 	mb_assert(s && err >= 0 && err < _countof(_ERR_DESC));
 
-	s->last_error = err;
+	if(s->last_error == SE_NO_ERR) {
+		s->last_error = err;
+	}
 }
 
 const char* _get_error_desc(mb_error_e err) {
@@ -3773,6 +3776,20 @@ int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p) {
 	return result;
 }
 
+int mb_gets(char* buf, int s) {
+	/* Safe stdin reader function */
+	int result = 0;
+	if(fgets(buf, s, stdin) == 0) {
+		fprintf(stderr, "Error reading.\n");
+		exit(1);
+	}
+	result = (int)strlen(buf);
+	if(buf[result - 1] == '\n')
+		buf[result - 1] = '\0';
+
+	return result;
+}
+
 /* ========================================================} */
 
 /*
@@ -5630,8 +5647,11 @@ int _std_input(mb_interpreter_t* s, void** l) {
 	ast = (_ls_node_t*)(*l);
 	obj = (_object_t*)(ast->data);
 
+	if(!obj || obj->type != _DT_VAR) {
+		_handle_error_on_obj(s, SE_RN_VARIABLE_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
+	}
 	if(obj->data.variable->data->type == _DT_INT || obj->data.variable->data->type == _DT_REAL) {
-		gets(line);
+		mb_gets(line, sizeof(line));
 		obj->data.variable->data->type = _DT_INT;
 		obj->data.variable->data->data.integer = (int_t)strtol(line, &conv_suc, 0);
 		if(*conv_suc != '\0') {
@@ -5648,7 +5668,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 		}
 		obj->data.variable->data->data.string = (char*)mb_malloc(256);
 		memset(obj->data.variable->data->data.string, 0, 256);
-		gets(line);
+		mb_gets(line, sizeof(line));
 		strcpy(obj->data.variable->data->data.string, line);
 	} else {
 		result = MB_FUNC_ERR;
