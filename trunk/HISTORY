@@ -1,3 +1,8 @@
+Mar. 17 2014
+Added an XCode project
+Added a safe stdin reader function mb_gets
+Fixed a crash bug in INPUT function
+
 Feb. 17 2014
 Added mod by zero processing
 
