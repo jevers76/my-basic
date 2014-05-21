@@ -1,3 +1,7 @@
+May. 22 2014
+Fixed a crash bug when missing colon in a combined line, thanks to Michael P. Welch for pointing it out
+Fixed a missing lexical cursor stepping bug in INPUT function
+
 Mar. 17 2014
 Added an XCode project
 Added a safe stdin reader function mb_gets

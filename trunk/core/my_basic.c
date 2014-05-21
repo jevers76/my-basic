@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 40
+#define _VER_REVISION 41
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0040"
+#define _MB_VERSION_STRING "1.0.0041"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -579,6 +579,7 @@ static void mb_free(void* p);
 
 /** Expression processing */
 static bool_t _is_operator(mb_func_t op);
+static bool_t _is_flow(mb_func_t op);
 static char _get_priority(mb_func_t op1, mb_func_t op2);
 static int _get_priority_index(mb_func_t op);
 static _object_t* _operate_operand(mb_interpreter_t* s, _object_t* optr, _object_t* opnd1, _object_t* opnd2, int* status);
@@ -653,6 +654,7 @@ static char* _extract_string(_object_t* obj);
 static bool_t _is_internal_object(_object_t* obj);
 static int _dispose_object(_object_t* obj);
 static int _destroy_object(void* data, void* extra);
+static int _remove_source_object(void* data, void* extra);
 static int _compare_numbers(const _object_t* first, const _object_t* second);
 static int _public_value_to_internal_object(mb_value_t* pbl, _object_t* itn);
 static int _internal_object_to_public_value(_object_t* itn, mb_value_t* pbl);
@@ -1512,13 +1514,38 @@ bool_t _is_operator(mb_func_t op) {
 		(op == _core_open_bracket) ||
 		(op == _core_close_bracket) ||
 		(op == _core_equal) ||
-		(op == _core_greater) ||
 		(op == _core_less) ||
-		(op == _core_greater_equal) ||
+		(op == _core_greater) ||
 		(op == _core_less_equal) ||
+		(op == _core_greater_equal) ||
 		(op == _core_not_equal) ||
 		(op == _core_and) ||
 		(op == _core_or);
+
+	return result;
+}
+
+bool_t _is_flow(mb_func_t op) {
+	/* Determine whether a function is for flow control */
+	bool_t result = false;
+
+	result =
+		(op == _core_if) ||
+		(op == _core_then) ||
+		(op == _core_else) ||
+		(op == _core_for) ||
+		(op == _core_to) ||
+		(op == _core_step) ||
+		(op == _core_next) ||
+		(op == _core_while) ||
+		(op == _core_wend) ||
+		(op == _core_do) ||
+		(op == _core_until) ||
+		(op == _core_exit) ||
+		(op == _core_goto) ||
+		(op == _core_gosub) ||
+		(op == _core_return) ||
+		(op == _core_end);
 
 	return result;
 }
@@ -1786,6 +1813,11 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				}
 				if(ast) {
 					c = (_object_t*)(ast->data);
+					if(c->type == _DT_FUNC && !_is_operator(c->data.func->pointer) && !_is_flow(c->data.func->pointer)) {
+						_ls_foreach(opnd, _remove_source_object);
+
+						_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
+					}
 					ast = ast->next;
 				} else {
 					c = _exp_assign;
@@ -2053,6 +2085,8 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 
 	*obj = (_object_t*)mb_malloc(sizeof(_object_t));
 	memset(*obj, 0, sizeof(_object_t));
+	(*obj)->source_pos = -1;
+	(*obj)->source_row = (*obj)->source_col = 0xffff;
 
 	type = _get_symbol_type(s, sym, &value);
 	(*obj)->type = type;
@@ -2730,6 +2764,16 @@ _exit:
 	return result;
 }
 
+int _remove_source_object(void* data, void* extra) {
+	/* Remove an object referenced from source code */
+	int result = _OP_RESULT_DEL_NODE;
+	mb_unrefvar(extra);
+
+	mb_assert(data);
+
+	return result;
+}
+
 int _compare_numbers(const _object_t* first, const _object_t* second) {
 	/* Compare two numbers inside two _object_t */
 	int result = 0;
@@ -2850,10 +2894,25 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	}
 	if(ast) {
 		obj = (_object_t*)(ast->data);
-		if(obj && obj->type == _DT_SEP && obj->data.separator == ':') {
+		if(obj && obj->type == _DT_EOS) {
+			ast = ast->next;
+		} else if(obj && obj->type == _DT_SEP && obj->data.separator == ':') {
 			skip_to_eoi = false;
+			ast = ast->next;
+		} else if(obj && obj->type == _DT_VAR) {
+			_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
+		} else if(
+			(obj && obj->type != _DT_FUNC) || (
+				obj && obj->type == _DT_FUNC && (
+					_is_operator(obj->data.func->pointer) ||
+					_is_flow(obj->data.func->pointer)
+				)
+			)
+		) {
+			ast = ast->next;
+		} else {
+			_handle_error_on_obj(s, SE_RN_COLON_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 		}
-		ast = ast->next;
 	}
 	if(skip_to_eoi && running->skip_to_eoi && running->skip_to_eoi == _ls_back(running->sub_stack)) {
 		running->skip_to_eoi = 0;
@@ -5670,6 +5729,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 		memset(obj->data.variable->data->data.string, 0, 256);
 		mb_gets(line, sizeof(line));
 		strcpy(obj->data.variable->data->data.string, line);
+		ast = ast->next;
 	} else {
 		result = MB_FUNC_ERR;
 		goto _exit;
