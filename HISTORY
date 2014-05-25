@@ -1,3 +1,7 @@
+May. 25 2014
+Added a mb_set_inputer function which allows the user to specify an INPUT reader, thanks to Michael P. Welch for suggestion
+Added a mb_remove_reserved_func function which allows the user to disable/remove a reserved statement
+
 May. 22 2014
 Fixed a crash bug when missing colon in a combined line, thanks to Michael P. Welch for pointing it out
 Fixed a missing lexical cursor stepping bug in INPUT function
