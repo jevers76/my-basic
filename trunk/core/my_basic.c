@@ -66,9 +66,9 @@ extern "C" {
 /** Macros */
 #define _VER_MAJOR 1
 #define _VER_MINOR 0
-#define _VER_REVISION 41
+#define _VER_REVISION 42
 #define _MB_VERSION ((_VER_MAJOR * 0x01000000) + (_VER_MINOR * 0x00010000) + (_VER_REVISION))
-#define _MB_VERSION_STRING "1.0.0041"
+#define _MB_VERSION_STRING "1.0.0042"
 
 /* Uncomment this line to treat warnings as error */
 /*#define _WARING_AS_ERROR*/
@@ -517,6 +517,7 @@ static _object_t* _exp_assign = 0;
 /** List */
 static int _ls_cmp_data(void* node, void* info);
 static int _ls_cmp_extra(void* node, void* info);
+static int _ls_cmp_extra_string(void* node, void* info);
 
 static _ls_node_t* _ls_create_node(void* data);
 static _ls_node_t* _ls_create(void);
@@ -529,7 +530,7 @@ static _ls_node_t* _ls_insert(_ls_node_t* list, int pos, void* data);
 static void* _ls_popback(_ls_node_t* list);
 static void* _ls_popfront(_ls_node_t* list);
 static unsigned int _ls_remove(_ls_node_t* list, int pos);
-static unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp);
+static unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp, _ls_operation op);
 static unsigned int _ls_count(_ls_node_t* list);
 static unsigned int _ls_foreach(_ls_node_t* list, _ls_operation op);
 static bool_t _ls_empty(_ls_node_t* list);
@@ -554,7 +555,7 @@ static unsigned int _ht_count(_ht_node_t* ht);
 static unsigned int _ht_get(_ht_node_t* ht, void* key, void** value);
 static unsigned int _ht_set(_ht_node_t* ht, void* key, void* value);
 static unsigned int _ht_set_or_insert(_ht_node_t* ht, void* key, void* value);
-static unsigned int _ht_remove(_ht_node_t* ht, void* key);
+static unsigned int _ht_remove(_ht_node_t* ht, void* key, _ls_compare cmp);
 static unsigned int _ht_foreach(_ht_node_t* ht, _ht_operation op);
 static bool_t _ht_empty(_ht_node_t* ht);
 static void _ht_clear(_ht_node_t* ht);
@@ -620,6 +621,7 @@ static void _set_current_error(mb_interpreter_t* s, mb_error_e err);
 static const char* _get_error_desc(mb_error_e err);
 
 static mb_print_func_t _get_printer(mb_interpreter_t* s);
+static mb_input_func_t _get_inputer(mb_interpreter_t* s);
 
 static bool_t _is_blank(char c);
 static bool_t _is_newline(char c);
@@ -864,6 +866,14 @@ int _ls_cmp_extra(void* node, void* info) {
 	return (n->extra == info) ? 0 : 1;
 }
 
+int _ls_cmp_extra_string(void* node, void* info) {
+	_ls_node_t* n = (_ls_node_t*)node;
+	char* s1 = (char*)n->extra;
+	char* s2 = (char*)info;
+
+	return strcmp(s1, s2);
+}
+
 _ls_node_t* _ls_create_node(void* data) {
 	_ls_node_t* result = 0;
 
@@ -908,6 +918,7 @@ _ls_node_t* _ls_at(_ls_node_t* list, int pos) {
 	for(i = 0; i <= pos; ++i) {
 		if(!result->next) {
 			result = 0;
+
 			break;
 		} else {
 			result = result->next;
@@ -1050,7 +1061,7 @@ unsigned int _ls_remove(_ls_node_t* list, int pos) {
 	return result;
 }
 
-unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp) {
+unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp, _ls_operation op) {
 	unsigned int result = 0;
 	_ls_node_t* tmp = 0;
 
@@ -1068,8 +1079,12 @@ unsigned int _ls_try_remove(_ls_node_t* list, void* info, _ls_compare cmp) {
 			if(list->prev == tmp) {
 				list->prev = 0;
 			}
+			if(op) {
+				op(tmp->data, tmp->extra);
+			}
 			safe_free(tmp);
 			++result;
+
 			break;
 		}
 		tmp = tmp->next;
@@ -1100,7 +1115,7 @@ unsigned int _ls_foreach(_ls_node_t* list, _ls_operation op) {
 
 	list = list->next;
 	while(list) {
-		opresult = (*op)(list->data, list->extra);
+		opresult = op(list->data, list->extra);
 		++idx;
 		tmp = list;
 		list = list->next;
@@ -1307,6 +1322,7 @@ _ls_node_t* _ht_find(_ht_node_t* ht, void* key) {
 	while(bucket) {
 		if(ht->compare(bucket->extra, key) == 0) {
 			result = bucket;
+
 			break;
 		}
 		bucket = bucket->next;
@@ -1379,17 +1395,21 @@ unsigned int _ht_set_or_insert(_ht_node_t* ht, void* key, void* value) {
 	return result;
 }
 
-unsigned int _ht_remove(_ht_node_t* ht, void* key) {
+unsigned int _ht_remove(_ht_node_t* ht, void* key, _ls_compare cmp) {
 	unsigned int result = 0;
 	unsigned int hash_code = 0;
 	_ls_node_t* bucket = 0;
 
 	mb_assert(ht && key);
 
+	if(!cmp) {
+		cmp = _ls_cmp_extra;
+	}
+
 	bucket = _ht_find(ht, key);
 	hash_code = ht->hash(ht, key);
 	bucket = ht->array[hash_code];
-	result = _ls_try_remove(bucket, key, _ls_cmp_extra);
+	result = _ls_try_remove(bucket, key, cmp, ht->free_extra);
 	ht->count -= result;
 
 	return result;
@@ -1723,6 +1743,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 			(*val)->data.string = c->data.string;
 			(*val)->ref = true;
 			ast = ast->next;
+
 			goto _exit;
 		}
 	} while(0);
@@ -1742,6 +1763,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				if(bracket_count < 0) {
 					c = _exp_assign;
 					ast = ast->prev;
+
 					continue;
 				}
 			}
@@ -1830,11 +1852,13 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				_ls_pushback(optr, c);
 				c = (_object_t*)(ast->data);
 				ast = ast->next;
+
 				break;
 			case '=':
 				x = (_object_t*)_ls_popback(optr);
 				c = (_object_t*)(ast->data);
 				ast = ast->next;
+
 				break;
 			case '>':
 				theta = (_object_t*)_ls_popback(optr);
@@ -1850,6 +1874,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 				if(c->type == _DT_FUNC && c->data.func->pointer == _core_close_bracket) {
 					hack = true;
 				}
+
 				break;
 			}
 		}
@@ -1863,6 +1888,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 	if(!c || !(c->type == _DT_INT || c->type == _DT_REAL || c->type == _DT_STRING || c->type == _DT_VAR)) {
 		_set_current_error(s, SE_RN_INVALID_DATA_TYPE);
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 	if(c->type == _DT_VAR) {
@@ -1882,7 +1908,7 @@ int _calc_expression(mb_interpreter_t* s, _ls_node_t** l, _object_t** val) {
 			(*val)->data = c->data;
 		}
 	}
-	if(guard_val != c && _ls_try_remove(garbage, c, _ls_cmp_data)) {
+	if(guard_val != c && _ls_try_remove(garbage, c, _ls_cmp_data, NULL)) {
 		_destroy_object(c, 0);
 	}
 
@@ -1940,6 +1966,17 @@ mb_print_func_t _get_printer(mb_interpreter_t* s) {
 	}
 
 	return printf;
+}
+
+mb_input_func_t _get_inputer(mb_interpreter_t* s) {
+	/* Get an input functor according to an interpreter */
+	mb_assert(s);
+
+	if(s->inputer) {
+		return s->inputer;
+	}
+
+	return mb_gets;
 }
 
 bool_t _is_blank(char c) {
@@ -2095,11 +2132,13 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 		tmp.any = value;
 		(*obj)->data.integer = tmp.integer;
 		safe_free(sym);
+
 		break;
 	case _DT_REAL:
 		tmp.any = value;
 		(*obj)->data.float_point = tmp.float_point;
 		safe_free(sym);
+
 		break;
 	case _DT_STRING: {
 			size_t _sl = strlen(sym);
@@ -2108,6 +2147,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 			(*obj)->data.string[_sl - 2] = '\0';
 			*delsym = true;
 		}
+
 		break;
 	case _DT_FUNC:
 		tmp.func = (_func_t*)mb_malloc(sizeof(_func_t));
@@ -2115,6 +2155,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 		tmp.func->name = sym;
 		tmp.func->pointer = (mb_func_t)(intptr_t)value;
 		(*obj)->data.func = tmp.func;
+
 		break;
 	case _DT_ARRAY:
 		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
@@ -2138,6 +2179,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 			(*obj)->data.array = tmp.array;
 			(*obj)->ref = true;
 		}
+
 		break;
 	case _DT_VAR:
 		glbsyminscope = _ht_find((_ht_node_t*)s->global_var_dict, sym);
@@ -2164,6 +2206,7 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 			(*obj)->data.variable = tmp.var;
 			(*obj)->ref = true;
 		}
+
 		break;
 	case _DT_LABEL:
 		if(context->current_char == ':') {
@@ -2192,13 +2235,16 @@ int _create_symbol(mb_interpreter_t* s, _ls_node_t* l, char* sym, _object_t** ob
 			memset((*obj)->data.label, 0, sizeof(_label_t));
 			(*obj)->data.label->name = sym;
 		}
+
 		break;
 	case _DT_SEP:
 		(*obj)->data.separator = sym[0];
 		safe_free(sym);
+
 		break;
 	case _DT_EOS:
 		safe_free(sym);
+
 		break;
 	default:
 		break;
@@ -2229,6 +2275,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		*value = tmp.any;
 
 		result = _DT_INT;
+
 		goto _exit;
 	}
 	/* real_t */
@@ -2237,11 +2284,13 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		*value = tmp.any;
 
 		result = _DT_REAL;
+
 		goto _exit;
 	}
 	/* string */
 	if(sym[0] == '"' && sym[_sl - 1] == '"' && _sl >= 2) {
 		result = _DT_STRING;
+
 		goto _exit;
 	}
 	/* _array_t */
@@ -2251,6 +2300,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		*value = (void*)(intptr_t)(tmp.obj->data.array->type);
 
 		result = _DT_ARRAY;
+
 		goto _exit;
 	}
 	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
@@ -2258,6 +2308,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 			*value = (void*)(intptr_t)(sym[_sl - 1] == '$' ? _DT_STRING : _DT_REAL);
 
 			result = _DT_ARRAY;
+
 			goto _exit;
 		}
 	}
@@ -2268,6 +2319,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 			*value = (void*)(intptr_t)(_core_neg);
 
 			result = _DT_FUNC;
+
 			goto _exit;
 		}
 	}
@@ -2277,16 +2329,19 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 		*value = lclsyminscope ? lclsyminscope->data : glbsyminscope->data;
 
 		result = _DT_FUNC;
+
 		goto _exit;
 	}
 	/* _EOS */
 	if(_sl == 1 && sym[0] == _EOS) {
 		result = _DT_EOS;
+
 		goto _exit;
 	}
 	/* separator */
 	if(_sl == 1 && _is_separator(sym[0])) {
 		result = _DT_SEP;
+
 		goto _exit;
 	}
 	/* _var_t */
@@ -2296,6 +2351,7 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 			*value = glbsyminscope->data;
 
 			result = _DT_VAR;
+
 			goto _exit;
 		}
 	}
@@ -2308,12 +2364,14 @@ _data_e _get_symbol_type(mb_interpreter_t* s, char* sym, void** value) {
 			}
 
 			result = _DT_LABEL;
+
 			goto _exit;
 		}
 	}
 	if(context->last_symbol && context->last_symbol->type == _DT_FUNC) {
 		if(context->last_symbol->data.func->pointer == _core_goto || context->last_symbol->data.func->pointer == _core_gosub) {
 			result = _DT_LABEL;
+
 			goto _exit;
 		}
 	}
@@ -2607,6 +2665,7 @@ void _clear_array(_array_t* arr) {
 		case _DT_INT: /* Fall through */
 		case _DT_REAL:
 			safe_free(arr->raw);
+
 			break;
 		case _DT_STRING:
 			strs = (char**)arr->raw;
@@ -2616,9 +2675,11 @@ void _clear_array(_array_t* arr) {
 				}
 			}
 			safe_free(arr->raw);
+
 			break;
 		default:
 			mb_assert(0 && "Unsupported");
+
 			break;
 		}
 		arr->raw = 0;
@@ -2697,6 +2758,7 @@ int _dispose_object(_object_t* obj) {
 			_destroy_object(var->data, 0);
 			safe_free(var);
 		}
+
 		break;
 	case _DT_STRING:
 		if(!obj->ref) {
@@ -2704,21 +2766,25 @@ int _dispose_object(_object_t* obj) {
 				safe_free(obj->data.string);
 			}
 		}
+
 		break;
 	case _DT_FUNC:
 		safe_free(obj->data.func->name);
 		safe_free(obj->data.func);
+
 		break;
 	case _DT_ARRAY:
 		if(!obj->ref) {
 			_destroy_array(obj->data.array);
 		}
+
 		break;
 	case _DT_LABEL:
 		if(!obj->ref) {
 			safe_free(obj->data.label->name);
 			safe_free(obj->data.label);
 		}
+
 		break;
 	case _DT_NIL: /* Fall through */
 	case _DT_INT: /* Fall through */
@@ -2729,6 +2795,7 @@ int _dispose_object(_object_t* obj) {
 		break;
 	default:
 		mb_assert(0 && "Invalid type");
+
 		break;
 	}
 	obj->ref = false;
@@ -2740,7 +2807,6 @@ int _dispose_object(_object_t* obj) {
 	++result;
 
 _exit:
-
 	return result;
 }
 
@@ -2814,17 +2880,21 @@ int _public_value_to_internal_object(mb_value_t* pbl, _object_t* itn) {
 	case MB_DT_INT:
 		itn->type = _DT_INT;
 		itn->data.integer = pbl->value.integer;
+
 		break;
 	case MB_DT_REAL:
 		itn->type = _DT_REAL;
 		itn->data.float_point = pbl->value.float_point;
+
 		break;
 	case MB_DT_STRING:
 		itn->type = _DT_STRING;
 		itn->data.string = pbl->value.string;
+
 		break;
 	default:
 		result = MB_FUNC_ERR;
+
 		break;
 	}
 
@@ -2841,17 +2911,21 @@ int _internal_object_to_public_value(_object_t* itn, mb_value_t* pbl) {
 	case _DT_INT:
 		pbl->type = MB_DT_INT;
 		pbl->value.integer = itn->data.integer;
+
 		break;
 	case _DT_REAL:
 		pbl->type = MB_DT_REAL;
 		pbl->value.float_point = itn->data.float_point;
+
 		break;
 	case _DT_STRING:
 		pbl->type = MB_DT_STRING;
 		pbl->value.string = itn->data.string;
+
 		break;
 	default:
 		result = MB_FUNC_ERR;
+
 		break;
 	}
 
@@ -2876,15 +2950,18 @@ int _execute_statement(mb_interpreter_t* s, _ls_node_t** l) {
 	switch(obj->type) {
 	case _DT_FUNC:
 		result = (obj->data.func->pointer)(s, (void**)(&ast));
+
 		break;
 	case _DT_VAR: /* Fall through */
 	case _DT_ARRAY:
 		result = _core_let(s, (void**)(&ast));
+
 		break;
 	case _DT_INT: /* Fall through */
 	case _DT_REAL: /* Fall through */
 	case _DT_STRING:
 		_handle_error_on_obj(s, SE_RN_INVALID_EXPRESSION, DON(ast), MB_FUNC_ERR, _exit, result);
+
 		break;
 	default:
 		break;
@@ -3038,7 +3115,7 @@ int _remove_func(mb_interpreter_t* s, const char* n, bool_t local) {
 		name = (char*)mb_malloc(_sl + 1);
 		memcpy(name, n, _sl + 1);
 		_strupr(name);
-		result += _ht_remove(scope, (void*)name);
+		result += _ht_remove(scope, (void*)name, _ls_cmp_extra_string);
 		safe_free(name);
 	} else {
 		_set_current_error(s, SE_CM_FUNC_NOT_EXISTS);
@@ -3372,6 +3449,11 @@ int mb_remove_func(mb_interpreter_t* s, const char* n) {
 	return _remove_func(s, n, false);
 }
 
+int mb_remove_reserved_func(mb_interpreter_t* s, const char* n) {
+	/* Remove a reserved remote function from a MY-BASIC environment */
+	return _remove_func(s, n, true);
+}
+
 int mb_attempt_func_begin(mb_interpreter_t* s, void** l) {
 	/* Try attempting to begin a function */
 	int result = MB_FUNC_OK;
@@ -3466,14 +3548,16 @@ int mb_pop_int(mb_interpreter_t* s, void** l, int_t* val) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		tmp = arg.value.integer;
+
 		break;
 	case MB_DT_REAL:
 		tmp = (int_t)(arg.value.float_point);
+
 		break;
 	default:
 		result = MB_FUNC_ERR;
+
 		goto _exit;
-		break;
 	}
 
 	*val = tmp;
@@ -3495,14 +3579,16 @@ int mb_pop_real(mb_interpreter_t* s, void** l, real_t* val) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		tmp = (real_t)(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		tmp = arg.value.float_point;
+
 		break;
 	default:
 		result = MB_FUNC_ERR;
+
 		goto _exit;
-		break;
 	}
 
 	*val = tmp;
@@ -3524,11 +3610,12 @@ int mb_pop_string(mb_interpreter_t* s, void** l, char** val) {
 	switch(arg.type) {
 	case MB_DT_STRING:
 		tmp = arg.value.string;
+
 		break;
 	default:
 		result = MB_FUNC_ERR;
+
 		goto _exit;
-		break;
 	}
 
 	*val = tmp;
@@ -3674,6 +3761,7 @@ int mb_load_string(mb_interpreter_t* s, const char* l) {
 					s->last_error_col,
 					result);
 			}
+
 			goto _exit;
 		}
 		_row = row;
@@ -3715,6 +3803,7 @@ int mb_load_file(mb_interpreter_t* s, const char* f) {
 
 		result = mb_load_string(s, buf);
 		mb_free(buf);
+
 		if(result) {
 			goto _exit;
 		}
@@ -3755,6 +3844,7 @@ int mb_run(mb_interpreter_t* s) {
 				s->last_error_row,
 				s->last_error_col,
 				result);
+
 			goto _exit;
 		}
 	}
@@ -3772,6 +3862,7 @@ int mb_run(mb_interpreter_t* s) {
 					s->last_error_col,
 					result);
 			}
+
 			goto _exit;
 		}
 	} while(ast);
@@ -3831,6 +3922,17 @@ int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p) {
 	mb_assert(s);
 
 	s->printer = p;
+
+	return result;
+}
+
+int mb_set_inputer(mb_interpreter_t* s, mb_input_func_t p) {
+	/* Set an input functor to an interpreter instance */
+	int result = MB_FUNC_OK;
+
+	mb_assert(s);
+
+	s->inputer = p;
 
 	return result;
 }
@@ -3988,9 +4090,11 @@ int _core_neg(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = -(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = -(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -4216,10 +4320,12 @@ int _core_not(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)(!arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = (int_t)(!((int_t)arg.value.float_point));
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -4564,6 +4670,7 @@ _to:
 			goto _exit;
 		}
 		_skip_to(s, &ast, 0, _DT_EOS);
+
 		goto _exit;
 	} else {
 		/* Keep looping */
@@ -4574,12 +4681,14 @@ _to:
 				if(!running->next_loop_var || running->next_loop_var == var_loop) { /* This loop */
 					running->next_loop_var = 0;
 					result = MB_FUNC_OK;
+
 					break;
 				} else { /* Not this loop */
 					if(_skip_struct(s, &ast, _core_for, _core_next) != MB_FUNC_OK) {
 						goto _exit;
 					}
 					_skip_to(s, &ast, 0, _DT_EOS);
+
 					goto _exit;
 				}
 			} else if(result == MB_LOOP_BREAK) { /* EXIT */
@@ -4588,6 +4697,7 @@ _to:
 				}
 				_skip_to(s, &ast, 0, _DT_EOS);
 				result = MB_FUNC_OK;
+
 				goto _exit;
 			} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 				goto _exit;
@@ -4700,6 +4810,7 @@ _loop_begin:
 				}
 				_skip_to(s, &ast, 0, _DT_EOS);
 				result = MB_FUNC_OK;
+
 				goto _exit;
 			} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 				goto _exit;
@@ -4715,6 +4826,7 @@ _loop_begin:
 			goto _exit;
 		}
 		_skip_to(s, &ast, 0, _DT_EOS);
+
 		goto _exit;
 	}
 
@@ -4772,6 +4884,7 @@ _loop_begin:
 			}
 			_skip_to(s, &ast, 0, _DT_EOS);
 			result = MB_FUNC_OK;
+
 			goto _exit;
 		} else if(result != MB_FUNC_OK && result != MB_SUB_RETURN) { /* Normally */
 			goto _exit;
@@ -4795,6 +4908,7 @@ _loop_begin:
 	if(loop_cond_ptr->data.integer) {
 		/* End looping */
 		_skip_to(s, &ast, 0, _DT_EOS);
+
 		goto _exit;
 	} else {
 		/* Keep looping */
@@ -4947,9 +5061,11 @@ int _std_abs(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)abs(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)fabs(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -4975,10 +5091,12 @@ int _std_sgn(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = sgn(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = sgn(arg.value.float_point);
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -5005,9 +5123,11 @@ int _std_sqr(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)sqrt((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)sqrt(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5033,10 +5153,12 @@ int _std_floor(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = (int_t)floor(arg.value.float_point);
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -5062,10 +5184,12 @@ int _std_ceil(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = (int_t)ceil(arg.value.float_point);
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -5091,10 +5215,12 @@ int _std_fix(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = (int_t)(arg.value.float_point);
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -5120,10 +5246,12 @@ int _std_round(mb_interpreter_t* s, void** l) {
 	switch(arg.type) {
 	case MB_DT_INT:
 		arg.value.integer = (int_t)(arg.value.integer);
+
 		break;
 	case MB_DT_REAL:
 		arg.value.integer = (int_t)(arg.value.float_point + (real_t)0.5f);
 		arg.type = MB_DT_INT;
+
 		break;
 	default:
 		break;
@@ -5166,9 +5294,11 @@ int _std_sin(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)sin((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)sin(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5195,9 +5325,11 @@ int _std_cos(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)cos((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)cos(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5224,9 +5356,11 @@ int _std_tan(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)tan((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)tan(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5253,9 +5387,11 @@ int _std_asin(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)asin((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)asin(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5282,9 +5418,11 @@ int _std_acos(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)acos((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)acos(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5311,9 +5449,11 @@ int _std_atan(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)atan((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)atan(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5340,9 +5480,11 @@ int _std_exp(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)exp((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)exp(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5369,9 +5511,11 @@ int _std_log(mb_interpreter_t* s, void** l) {
 	case MB_DT_INT:
 		arg.value.float_point = (real_t)log((real_t)arg.value.integer);
 		arg.type = MB_DT_REAL;
+
 		break;
 	case MB_DT_REAL:
 		arg.value.float_point = (real_t)log(arg.value.float_point);
+
 		break;
 	default:
 		break;
@@ -5396,6 +5540,7 @@ int _std_asc(mb_interpreter_t* s, void** l) {
 
 	if(arg[0] == '\0') {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 	mb_check(mb_push_int(s, l, (int_t)arg[0]));
@@ -5444,6 +5589,7 @@ int _std_left(mb_interpreter_t* s, void** l) {
 
 	if(count <= 0) {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 
@@ -5494,6 +5640,7 @@ int _std_mid(mb_interpreter_t* s, void** l) {
 
 	if(count <= 0 || start < 0 || start >= (int_t)strlen(arg)) {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 
@@ -5524,6 +5671,7 @@ int _std_right(mb_interpreter_t* s, void** l) {
 
 	if(count <= 0) {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 
@@ -5558,6 +5706,7 @@ int _std_str(mb_interpreter_t* s, void** l) {
 		sprintf(chr, "%g", arg.value.float_point);
 	} else {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 	mb_check(mb_push_string(s, l, chr));
@@ -5585,12 +5734,14 @@ int _std_val(mb_interpreter_t* s, void** l) {
 	if(*conv_suc == '\0') {
 		val.type = MB_DT_INT;
 		mb_check(mb_push_value(s, l, val));
+
 		goto _exit;
 	}
 	val.value.float_point = (real_t)strtod(arg, &conv_suc);
 	if(*conv_suc == '\0') {
 		val.type = MB_DT_REAL;
 		mb_check(mb_push_value(s, l, val));
+
 		goto _exit;
 	}
 	result = MB_FUNC_ERR;
@@ -5658,9 +5809,11 @@ int _std_print(mb_interpreter_t* s, void** l) {
 #endif /* _COMMA_AS_NEWLINE */
 				_get_printer(s)("\n");
 			}
+
 			break;
 		default:
 			_handle_error_on_obj(s, SE_RN_NOT_SUPPORTED, DON(ast), MB_FUNC_ERR, _exit, result);
+
 			break;
 		}
 
@@ -5710,7 +5863,7 @@ int _std_input(mb_interpreter_t* s, void** l) {
 		_handle_error_on_obj(s, SE_RN_VARIABLE_EXPECTED, DON(ast), MB_FUNC_ERR, _exit, result);
 	}
 	if(obj->data.variable->data->type == _DT_INT || obj->data.variable->data->type == _DT_REAL) {
-		mb_gets(line, sizeof(line));
+		_get_inputer(s)(line, sizeof(line));
 		obj->data.variable->data->type = _DT_INT;
 		obj->data.variable->data->data.integer = (int_t)strtol(line, &conv_suc, 0);
 		if(*conv_suc != '\0') {
@@ -5718,20 +5871,23 @@ int _std_input(mb_interpreter_t* s, void** l) {
 			obj->data.variable->data->data.float_point = (real_t)strtod(line, &conv_suc);
 			if(*conv_suc != '\0') {
 				result = MB_FUNC_ERR;
+
 				goto _exit;
 			}
 		}
+		ast = ast->next;
 	} else if(obj->data.variable->data->type == _DT_STRING) {
 		if(obj->data.variable->data->data.string) {
 			safe_free(obj->data.variable->data->data.string);
 		}
 		obj->data.variable->data->data.string = (char*)mb_malloc(256);
 		memset(obj->data.variable->data->data.string, 0, 256);
-		mb_gets(line, sizeof(line));
+		_get_inputer(s)(line, sizeof(line));
 		strcpy(obj->data.variable->data->data.string, line);
 		ast = ast->next;
 	} else {
 		result = MB_FUNC_ERR;
+
 		goto _exit;
 	}
 

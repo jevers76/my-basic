@@ -229,6 +229,7 @@ static void _clear_screen(void) {
 
 static int _new_program(void) {
 	_clear_code(c);
+
 	return mb_reset(&bas, false);
 }
 
@@ -247,10 +248,12 @@ static void _list_program(const char* sn, const char* cn) {
 		int e = 0;
 		if(lsn < 1 || lsn > c->count) {
 			printf("Line number %ld out of bound.\n", lsn);
+
 			return;
 		}
 		if(lcn < 0) {
 			printf("Invalid line count %ld.\n", lcn);
+
 			return;
 		}
 		--lsn;
@@ -271,6 +274,7 @@ static void _edit_program(const char* no) {
 	lno = atoi(no);
 	if(lno < 1 || lno > c->count) {
 		printf("Line number %ld out of bound.\n", lno);
+
 		return;
 	}
 	--lno;

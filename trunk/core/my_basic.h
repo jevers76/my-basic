@@ -101,6 +101,9 @@ extern "C" {
 #ifndef mb_rem_fun
 #	define mb_rem_fun(__s, __f) mb_remove_func(__s, #__f)
 #endif /* mb_rem_fun */
+#ifndef mb_rem_res_fun
+#	define mb_rem_res_fun(__s, __f) mb_remove_reserved_func(__s, #__f)
+#endif /* mb_rem_res_fun */
 
 struct mb_interpreter_t;
 
@@ -177,6 +180,7 @@ typedef struct mb_value_t {
 typedef void (* mb_error_handler_t)(struct mb_interpreter_t*, enum mb_error_e, char*, int, unsigned short, unsigned short, int);
 typedef int (* mb_func_t)(struct mb_interpreter_t*, void**);
 typedef int (* mb_print_func_t)(const char*, ...);
+typedef int (* mb_input_func_t)(char*, int);
 
 typedef struct mb_interpreter_t {
 	void* local_func_dict;
@@ -191,6 +195,7 @@ typedef struct mb_interpreter_t {
 	unsigned short last_error_col;
 	mb_error_handler_t error_handler;
 	mb_print_func_t printer;
+	mb_input_func_t inputer;
 	void* userdata;
 } mb_interpreter_t;
 
@@ -205,6 +210,7 @@ MBAPI int mb_reset(mb_interpreter_t** s, bool_t clrf);
 
 MBAPI int mb_register_func(mb_interpreter_t* s, const char* n, mb_func_t f);
 MBAPI int mb_remove_func(mb_interpreter_t* s, const char* n);
+MBAPI int mb_remove_reserved_func(mb_interpreter_t* s, const char* n);
 
 MBAPI int mb_attempt_func_begin(mb_interpreter_t* s, void** l);
 MBAPI int mb_attempt_func_end(mb_interpreter_t* s, void** l);
@@ -228,6 +234,7 @@ MBAPI mb_error_e mb_get_last_error(mb_interpreter_t* s);
 MBAPI const char* mb_get_error_desc(mb_error_e err);
 MBAPI int mb_set_error_handler(mb_interpreter_t* s, mb_error_handler_t h);
 MBAPI int mb_set_printer(mb_interpreter_t* s, mb_print_func_t p);
+MBAPI int mb_set_inputer(mb_interpreter_t* s, mb_input_func_t p);
 
 MBAPI int mb_gets(char* buf, int s);
 
